@@ -112,6 +112,38 @@ const SUDDEN = [
   { id: "oil_spike", icon: "🛢️", t: "Oil Reaches $200/barrel — Global Recession Imminent", d: "Brent crude hits $200/bbl. IMF declares global recession has begun. Emergency G20 called.", e: { economy: -20, fuel: -10, chest: -8, stability: -10 } },
 ];
 
+const LIFE_SPAWNS: AnyRecord = {
+  singapore: { id: "singapore", name: "Singapore", note: "Orderly, expensive, heavily watched.", stats: { health: 76, morale: 68, money: 58, supplies: 62, family: 64, reputation: 58, risk: 28, debt: 22 }, markets: { food: 112, fuel: 138, rent: 125, medicine: 118, usd: 104, jobs: 72 } },
+  taipei: { id: "taipei", name: "Taipei", note: "Closest to the storm, best information, highest daily risk.", stats: { health: 68, morale: 62, money: 46, supplies: 48, family: 70, reputation: 55, risk: 56, debt: 28 }, markets: { food: 138, fuel: 168, rent: 116, medicine: 142, usd: 118, jobs: 48 } },
+  manila: { id: "manila", name: "Manila", note: "Family networks matter. Prices move fast.", stats: { health: 70, morale: 66, money: 42, supplies: 45, family: 76, reputation: 58, risk: 44, debt: 34 }, markets: { food: 128, fuel: 152, rent: 104, medicine: 126, usd: 112, jobs: 55 } },
+  jakarta: { id: "jakarta", name: "Jakarta", note: "Fuel, logistics, and informal markets dominate.", stats: { health: 72, morale: 64, money: 48, supplies: 52, family: 66, reputation: 54, risk: 38, debt: 30 }, markets: { food: 122, fuel: 160, rent: 98, medicine: 121, usd: 109, jobs: 58 } },
+};
+
+const LIFE_ROLES: AnyRecord = {
+  nurse: { id: "nurse", name: "Emergency Nurse", note: "Trusted, exhausted, exposed to shortages.", stats: { health: -4, morale: -2, money: 4, supplies: 2, family: -3, reputation: 12, risk: 8, debt: -2 }, event: "Hospital triage board asks you to take another double shift.", roleChoice: { l: "Work the double shift and trade favors for medicine", tag: "CARE", e: { health: -7, morale: -4, money: 5, supplies: 8, reputation: 9, risk: 5 }, m: { medicine: -2 }, o: "You are exhausted, but your name opens pharmacy doors." } },
+  trader: { id: "trader", name: "Market Trader", note: "Fast cash, fast enemies.", stats: { health: 0, morale: 2, money: 12, supplies: -4, family: -2, reputation: -5, risk: 10, debt: -4 }, event: "A broker offers advance access to tomorrow's fuel allocation list.", roleChoice: { l: "Buy the allocation tip and flip fuel contracts", tag: "DEAL", e: { money: 14, reputation: -8, risk: 10, debt: -4 }, m: { fuel: 6, usd: 2 }, o: "The trade pays, but people notice who profited." } },
+  parent: { id: "parent", name: "Single Parent", note: "Every decision passes through the family table.", stats: { health: 2, morale: 0, money: -6, supplies: 5, family: 14, reputation: 3, risk: -3, debt: 8 }, event: "Your child's school closes and asks families to form rotating care groups.", roleChoice: { l: "Organize a care circle with neighbors", tag: "HOME", e: { family: 10, reputation: 8, morale: 4, money: -4, supplies: -3 }, m: { jobs: -2 }, o: "The household gets harder to run, but no one is alone." } },
+  analyst: { id: "analyst", name: "Risk Analyst", note: "Information is your edge. Overthinking is your tax.", stats: { health: -2, morale: -3, money: 9, supplies: 0, family: -4, reputation: 5, risk: -2, debt: -5 }, event: "A client wants a private evacuation probability model by midnight.", roleChoice: { l: "Sell the model and reserve a foreign account", tag: "INFO", e: { money: 11, morale: -4, family: -5, reputation: 3, risk: -4 }, m: { usd: 4 }, o: "Your dashboard is cold, accurate, and profitable." } },
+};
+
+const LIFE_PHILOSOPHIES: AnyRecord = {
+  protector: { id: "protector", name: "Protect the People Close to Me", stats: { family: 10, supplies: 4, money: -4, reputation: 2 }, note: "Family and friends before upside." },
+  opportunist: { id: "opportunist", name: "Chaos Is a Ladder", stats: { money: 10, reputation: -6, risk: 8, morale: 2 }, note: "Find the spread, take the spread." },
+  civic: { id: "civic", name: "Hold the Community Together", stats: { reputation: 10, morale: 4, supplies: -3, risk: 3 }, note: "Mutual aid beats panic." },
+  exit: { id: "exit", name: "Prepare an Exit Route", stats: { risk: -6, money: -2, family: -2, supplies: 8 }, note: "Keep documents ready and options open." },
+};
+
+const LIFE_LOCAL_EVENTS: AnyRecord[] = [
+  { t: "Rolling Blackout", d: "District power cuts expand from two hours to all evening. Refrigerated food and remote work are both at risk.", e: { morale: -4, supplies: -3 }, m: { fuel: 3, food: 2 } },
+  { t: "Bank Queue Shock", d: "ATMs limit withdrawals. Rumors spread that two regional banks are delaying transfers.", e: { morale: -3, money: -3, risk: 3 }, m: { usd: 5, jobs: -2 } },
+  { t: "Fuel Ration Line", d: "Taxi fleets and delivery riders queue overnight. Police warn against hoarding.", e: { supplies: -2, risk: 4 }, m: { fuel: 8, food: 2 } },
+  { t: "Clinic Shortage", d: "Insulin, antibiotics, and blood pressure medicine are suddenly hard to find.", e: { health: -4, morale: -2 }, m: { medicine: 7 } },
+  { t: "Port Delay", d: "Container inspections triple. Fresh goods sit in port while prices jump in wet markets.", e: { supplies: -5, money: -2 }, m: { food: 6, jobs: -1 } },
+  { t: "Curfew Rumor", d: "The government denies a curfew while quietly putting riot police near transit hubs.", e: { morale: -3, risk: 5 }, m: { rent: 1, usd: 2 } },
+];
+
+const LIFE_LENGTHS = [14, 30, 45, 60];
+
 const ENDINGS = {
   us_dem: [
     { cond: s => s.credibility > 82 && s.coalition > 76 && s.global > 72, grade: "A+", title: "Pax Democratica", body: "Your coalition held through every crisis. The multilateral framework you built became the architecture of post-Taiwan Strait Asia. Taiwan's sovereignty is enshrined. The Nobel committee calls." },
@@ -174,6 +206,65 @@ function buildQ(fid) {
   const q = [];
   [1, 2, 3, 4, 5, 6].forEach(a => q.push(...sfl(byA[a] || [])));
   return q;
+}
+
+const lc = (v, max = 100) => Math.max(0, Math.min(max, Math.round(v)));
+const lifeStatMax = (k) => k === "money" || k === "debt" ? 160 : 100;
+const lifeApplyStats = (s, e = {}) => {
+  const n = { ...s };
+  Object.entries(e).forEach(([k, v]) => { n[k] = lc((n[k] ?? 50) + Number(v), lifeStatMax(k)); });
+  return n;
+};
+const lifeApplyMarkets = (m, e = {}) => {
+  const n = { ...m };
+  Object.entries(e).forEach(([k, v]) => { n[k] = Math.max(20, Math.min(260, Math.round((n[k] ?? 100) + Number(v)))); });
+  return n;
+};
+function buildLifeProfile(draft) {
+  const spawn = LIFE_SPAWNS[draft.spawn] || LIFE_SPAWNS.singapore;
+  const role = LIFE_ROLES[draft.role] || LIFE_ROLES.nurse;
+  const philosophy = LIFE_PHILOSOPHIES[draft.philosophy] || LIFE_PHILOSOPHIES.protector;
+  return {
+    ...draft,
+    spawn,
+    role,
+    philosophy,
+    length: Number(draft.length) || 30,
+    stats: lifeApplyStats(lifeApplyStats(spawn.stats, role.stats), philosophy.stats),
+    markets: { ...spawn.markets },
+  };
+}
+function buildLifeEvent(day, profile) {
+  const local = LIFE_LOCAL_EVENTS[(day - 1) % LIFE_LOCAL_EVENTS.length];
+  const pressure = day % 5 === 0 ? { morale: -3, debt: 3, risk: 2 } : {};
+  return {
+    local,
+    role: { t: `${profile.role.name} Pressure`, d: profile.role.event },
+    choices: [
+      { l: "Stabilize the household and buy essentials", tag: "HOME", e: { supplies: 8, family: 5, money: -8, morale: 2, debt: 2 }, m: { food: 2, medicine: 1 }, o: "You pay retail before prices move again. The home base feels steadier." },
+      { l: "Take extra work and preserve cash flow", tag: "WORK", e: { money: 10, health: -4, morale: -3, family: -3, reputation: 2 }, m: { jobs: -2 }, o: "The shift is ugly, but cash arrives before the next price jump." },
+      { l: "Help neighbors and build a mutual-aid network", tag: "CIVIC", e: { reputation: 10, morale: 4, supplies: -5, risk: -2, money: -3 }, m: { food: -1 }, o: "People remember who showed up when the shelves were thin." },
+      profile.role.roleChoice,
+    ],
+    pressure,
+  };
+}
+function resolveLifeChoice(stats, markets, event, choice, day) {
+  const drift = { food: rnd(0, 4), fuel: rnd(-1, 6), rent: rnd(0, 2), medicine: rnd(0, 4), usd: rnd(-2, 5), jobs: -rnd(0, 3) };
+  const ns = lifeApplyStats(lifeApplyStats(lifeApplyStats(stats, event.local.e), event.pressure), choice.e);
+  const nm = lifeApplyMarkets(lifeApplyMarkets(lifeApplyMarkets(markets, event.local.m), drift), choice.m);
+  const entry = `Day ${day}: ${event.local.t}. ${choice.o}`;
+  return { stats: ns, markets: nm, entry };
+}
+function getLifeEnding(profile, stats) {
+  if (stats.debt > 92 || (stats.money < 20 && stats.debt > 70)) return { title: "Debt Collapse", grade: "F", body: "The crisis did not end with one dramatic mistake. It ended with compounding interest, late fees, and exhausted options." };
+  if (stats.money > 105 && stats.reputation < 38) return { title: "Black Market King", grade: "B-", body: "You learned where the shortages were before everyone else. The money is real. So are the enemies." };
+  if (stats.money > 105) return { title: "Crisis Millionaire", grade: "A-", body: "You turned volatility into a balance sheet. The city suffered, but your accounts tell a different story." };
+  if (stats.health < 34 || stats.morale < 30) return { title: "Burned-Out Professional", grade: "C-", body: "You kept working until the machine had nothing left to take except you." };
+  if (stats.family > 84) return { title: "Family Protector", grade: "A", body: "You did not save the world. You saved the people at your table, and that was the mission." };
+  if (profile.philosophy.id === "exit" && stats.money > 55 && stats.risk < 45) return { title: "Expat Escape", grade: "B+", body: "When the final window opened, your documents, cash, and timing were ready." };
+  if (stats.reputation > 82) return { title: "Community Pillar", grade: "A", body: "Your network became infrastructure. People survived because you made trust practical." };
+  return { title: "Quiet Survivor", grade: "B", body: "No headlines, no fortune, no collapse. You endured the crisis one careful day at a time." };
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
@@ -261,6 +352,134 @@ function FactionScreen({ onPick }: AnyRecord) {
   );
 }
 
+function MainMenu({ onWar, onLife }: AnyRecord) {
+  return (
+    <div style={{ padding: "18px 14px", maxWidth: "760px", margin: "0 auto" }}>
+      <div style={{ marginBottom: "16px" }}>
+        <div style={{ fontSize: "22px", fontWeight: 600, letterSpacing: "0.06em", color: "var(--color-text-primary)" }}>STRAIT PROTOCOL: 2030</div>
+        <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", marginTop: "3px" }}>Choose the level of the crisis you want to play.</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "10px" }}>
+        <button onClick={onWar} style={{ ...S.card, cursor: "pointer", padding: "16px", textAlign: "left", fontFamily: "var(--font-sans)" }}>
+          <div style={{ fontSize: "15px", fontWeight: 600, color: "#185FA5", marginBottom: "5px" }}>War Room Mode</div>
+          <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.6 }}>Play the current strategic crisis game with factions, fleets, diplomatic choices, and national endings.</div>
+        </button>
+        <button onClick={onLife} style={{ ...S.card, cursor: "pointer", padding: "16px", textAlign: "left", fontFamily: "var(--font-sans)" }}>
+          <div style={{ fontSize: "15px", fontWeight: 600, color: "#854F0B", marginBottom: "5px" }}>Life During Chaos Mode</div>
+          <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.6 }}>Prototype a civilian daily-survival campaign with roles, markets, personal stats, and local crisis events.</div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LifeSetupScreen({ draft, setDraft, onStart, onBack }: AnyRecord) {
+  const pick = (k, v) => setDraft(d => ({ ...d, [k]: v }));
+  const optionGrid = (title, keyName, items) => (
+    <div style={{ marginBottom: "12px" }}>
+      <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "5px" }}>{title}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "6px" }}>
+        {Object.values(items).map((it: any) => (
+          <button key={it.id} onClick={() => pick(keyName, it.id)} style={{ ...S.card, cursor: "pointer", textAlign: "left", padding: "9px", border: `1px solid ${draft[keyName] === it.id ? "#EF9F27" : "var(--color-border-tertiary)"}`, background: draft[keyName] === it.id ? "#FAEEDA" : "var(--color-background-primary)", fontFamily: "var(--font-sans)" }}>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--color-text-primary)" }}>{it.name}</div>
+            <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", lineHeight: 1.45, marginTop: "2px" }}>{it.note}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div style={{ padding: "14px", maxWidth: "760px", margin: "0 auto" }}>
+      <button onClick={onBack} style={{ marginBottom: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)", padding: "6px 9px", cursor: "pointer", fontSize: "10px" }}>Back to Menu</button>
+      <div style={{ fontSize: "18px", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "3px" }}>Life During Chaos</div>
+      <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", marginBottom: "12px" }}>Create a civilian campaign profile. This is the Phase 2 foundation, not the full expansion.</div>
+      {optionGrid("Spawn Point", "spawn", LIFE_SPAWNS)}
+      {optionGrid("Role", "role", LIFE_ROLES)}
+      {optionGrid("Life Philosophy", "philosophy", LIFE_PHILOSOPHIES)}
+      <div style={{ marginBottom: "12px" }}>
+        <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "5px" }}>Campaign Length</div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          {LIFE_LENGTHS.map(len => <button key={len} onClick={() => pick("length", len)} style={{ padding: "7px 12px", borderRadius: "var(--border-radius-md)", border: `1px solid ${draft.length === len ? "#EF9F27" : "var(--color-border-tertiary)"}`, background: draft.length === len ? "#FAEEDA" : "var(--color-background-primary)", cursor: "pointer", fontSize: "11px" }}>{len} days</button>)}
+        </div>
+      </div>
+      <button onClick={onStart} style={{ width: "100%", padding: "11px", border: "1px solid #EF9F27", borderRadius: "var(--border-radius-md)", background: "#FAEEDA", color: "#854F0B", cursor: "pointer", fontWeight: 600, fontFamily: "var(--font-sans)" }}>Start Life Mode</button>
+    </div>
+  );
+}
+
+function LifeMetric({ label, value, limit = 100 }: AnyRecord) {
+  const color = label === "debt" || label === "risk" ? (value > 70 ? "#A32D2D" : value > 45 ? "#BA7517" : "#1D9E75") : vC(value);
+  return (
+    <div style={{ ...S.card, padding: "6px 7px" }}>
+      <div style={{ fontSize: "8px", textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>{label}</div>
+      <div style={{ fontSize: "14px", fontWeight: 600, color }}>{value}</div>
+      <div style={{ height: "2px", background: "var(--color-border-tertiary)", borderRadius: "2px" }}><div style={{ width: `${Math.min(100, (value / limit) * 100)}%`, background: color, height: "2px", borderRadius: "2px" }} /></div>
+    </div>
+  );
+}
+
+function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, onBack }: AnyRecord) {
+  return (
+    <div style={S.root}>
+      <div style={{ padding: "8px 14px", background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: "12px", fontWeight: 600, color: "#854F0B", letterSpacing: "0.06em" }}>LIFE DURING CHAOS</div>
+          <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>{profile.spawn.name} · {profile.role.name} · {profile.philosophy.name}</div>
+        </div>
+        <div style={{ fontSize: "10px", color: "var(--color-text-secondary)" }}>Day {day}/{profile.length}</div>
+      </div>
+      <div style={{ padding: "8px 14px", display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "4px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+        {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
+      </div>
+      <div style={{ padding: "7px 14px", background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+        <div style={{ fontSize: "9px", fontWeight: 600, color: "var(--color-text-secondary)", marginBottom: "5px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Market Ticker</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "4px" }}>
+          {Object.entries(markets as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={220} />)}
+        </div>
+      </div>
+      <div style={{ padding: "12px 14px", display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(220px,1fr)", gap: "10px" }}>
+        <div>
+          <div style={{ ...S.card, padding: "12px", marginBottom: "8px" }}>
+            <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "4px" }}>{event.local.t}</div>
+            <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.65, marginBottom: "8px" }}>{event.local.d}</div>
+            <div style={{ fontSize: "10px", color: "#854F0B", lineHeight: 1.55, background: "#FAEEDA", borderRadius: "var(--border-radius-md)", padding: "7px 9px" }}><b>{event.role.t}:</b> {event.role.d}</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {event.choices.map((c, i) => (
+              <button key={i} onClick={() => onChoice(c)} style={{ textAlign: "left", padding: "10px 12px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)", cursor: "pointer", fontSize: "11px", lineHeight: 1.45, fontFamily: "var(--font-sans)" }}>
+                <Tag tag={c.tag} /><span style={{ marginLeft: "8px" }}>{c.l}</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={onBack} style={{ marginTop: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-secondary)", padding: "7px 10px", cursor: "pointer", fontSize: "10px" }}>End Run and Return to Menu</button>
+        </div>
+        <div style={{ ...S.card, padding: "10px", maxHeight: "360px", overflow: "auto" }}>
+          <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-text-secondary)", marginBottom: "6px", textTransform: "uppercase" }}>Event Log</div>
+          {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No decisions recorded yet.</div> : log.slice().reverse().map((l, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LifeEndingScreen({ ending, profile, stats, onRestart, onMenu }: AnyRecord) {
+  return (
+    <div style={{ ...S.root, padding: "22px 14px", textAlign: "center" }}>
+      <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", letterSpacing: "0.08em", marginBottom: "12px" }}>LIFE DURING CHAOS · {profile.spawn.name}</div>
+      <div style={{ fontSize: "20px", fontWeight: 600, color: "#854F0B", marginBottom: "4px" }}>{ending.title}</div>
+      <div style={{ display: "inline-block", padding: "3px 18px", border: "1.5px solid #EF9F27", borderRadius: "18px", background: "#FAEEDA", color: "#854F0B", fontWeight: 600, marginBottom: "12px" }}>{ending.grade}</div>
+      <div style={{ maxWidth: "520px", margin: "0 auto 14px", fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.75 }}>{ending.body}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "4px", maxWidth: "520px", margin: "0 auto 16px" }}>
+        {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
+      </div>
+      <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap" }}>
+        <button onClick={onRestart} style={{ padding: "9px 16px", border: "1px solid #EF9F27", borderRadius: "var(--border-radius-md)", background: "#FAEEDA", color: "#854F0B", cursor: "pointer", fontWeight: 600 }}>New Life Run</button>
+        <button onClick={onMenu} style={{ padding: "9px 16px", border: "1px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)", cursor: "pointer" }}>Main Menu</button>
+      </div>
+    </div>
+  );
+}
+
 function ManualOverlay({ onClose }: AnyRecord) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(25,25,23,0.36)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
@@ -313,7 +532,7 @@ function EndingScreen({ F, ending, stats, onRestart }: AnyRecord) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen, setScreen] = useState("faction");
+  const [screen, setScreen] = useState("menu");
   const [fid, setFid] = useState<string | null>(null);
   const [stats, setStats] = useState<StatMap>({});
   const [queue, setQueue] = useState<any[]>([]);
@@ -332,6 +551,14 @@ export default function App() {
   const [recession, setRecession] = useState(22);
   const [nukeAlert, setNukeAlert] = useState(1);
   const [taiwanFuel, setTaiwanFuel] = useState(61);
+  const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
+  const [lifeProfile, setLifeProfile] = useState<any>(null);
+  const [lifeStats, setLifeStats] = useState<StatMap>({});
+  const [lifeMarkets, setLifeMarkets] = useState<StatMap>({});
+  const [lifeDay, setLifeDay] = useState(1);
+  const [lifeEvent, setLifeEvent] = useState<any>(null);
+  const [lifeLog, setLifeLog] = useState<string[]>([]);
+  const [lifeEnding, setLifeEnding] = useState<any>(null);
 
   const F = fid ? FACTIONS[fid] : null;
 
@@ -343,6 +570,18 @@ export default function App() {
     setOil(145); setRecession(22); setNukeAlert(1); setTaiwanFuel(61);
     setScreen("game");
   }, []);
+
+  const startLife = useCallback(() => {
+    const profile = buildLifeProfile(lifeDraft);
+    setLifeProfile(profile);
+    setLifeStats(profile.stats);
+    setLifeMarkets(profile.markets);
+    setLifeDay(1);
+    setLifeEvent(buildLifeEvent(1, profile));
+    setLifeLog([]);
+    setLifeEnding(null);
+    setScreen("lifeGame");
+  }, [lifeDraft]);
 
   const pickChoice = useCallback((c, sc) => {
     const ns = apE(stats, c.e);
@@ -375,6 +614,23 @@ export default function App() {
     setQi(ni); setPhase("choose");
   }, [stats, sudden, qi, turn, day, queue, fid]);
 
+  const pickLifeChoice = useCallback((choice) => {
+    if (!lifeProfile || !lifeEvent) return;
+    const resolved = resolveLifeChoice(lifeStats, lifeMarkets, lifeEvent, choice, lifeDay);
+    const nextLog = [...lifeLog, resolved.entry].slice(-12);
+    if (lifeDay >= lifeProfile.length) {
+      setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
+      setLifeEnding(getLifeEnding(lifeProfile, resolved.stats)); setScreen("lifeEnding"); return;
+    }
+    const nd = lifeDay + 1;
+    setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
+    setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile));
+  }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog]);
+
+  if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} /></div>;
+  if (screen === "lifeSetup") return <LifeSetupScreen draft={lifeDraft} setDraft={setLifeDraft} onStart={startLife} onBack={() => setScreen("menu")} />;
+  if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} />;
+  if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
   if (screen === "faction") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<FactionScreen onPick={startGame} /></div>;
   if (screen === "ending") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<EndingScreen F={F} ending={ending} stats={stats} onRestart={() => setScreen("faction")} /></div>;
   if (!F) return null;
