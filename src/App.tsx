@@ -269,8 +269,10 @@ function getLifeEnding(profile, stats) {
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const S = {
-  root: { fontFamily: "var(--font-sans)", background: "var(--color-background-tertiary)", minHeight: "100vh" },
-  card: { background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)" },
+  root: { fontFamily: "var(--font-sans)", background: "linear-gradient(180deg,#f4f7f8 0%,#e8eef0 48%,#f7f7f4 100%)", minHeight: "100vh", color: "var(--color-text-primary)" },
+  shell: { width: "min(1120px,100%)", margin: "0 auto", padding: "16px 14px" },
+  card: { background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", boxShadow: "0 8px 24px rgba(20,35,45,0.06)" },
+  panel: { background: "rgba(255,255,255,0.86)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-lg)", boxShadow: "0 10px 32px rgba(20,35,45,0.07)" },
   muted: { color: "var(--color-text-secondary)" },
   tiny: { fontSize: "9px" },
   small: { fontSize: "11px" },
@@ -325,20 +327,25 @@ function FleetCard({ fl }: AnyRecord) {
 // ─── SCREENS ─────────────────────────────────────────────────────────────────
 function FactionScreen({ onPick }: AnyRecord) {
   return (
-    <div style={{ padding: "14px" }}>
-      <div style={{ marginBottom: "14px" }}>
-        <div style={{ fontSize: "20px", fontWeight: 500, letterSpacing: "0.06em", color: "var(--color-text-primary)", marginBottom: "3px" }}>STRAIT PROTOCOL: 2030</div>
-        <div style={{ fontSize: "10px", color: "var(--color-text-secondary)" }}>Taiwan Strait Crisis · 6 Factions · 6 Acts · 40+ Turns · Day 45</div>
+    <div style={S.shell}>
+      <div style={{ ...S.panel, padding: "16px", marginBottom: "12px" }}>
+        <div style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--color-text-primary)", marginBottom: "4px" }}>STRAIT PROTOCOL: 2030</div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+          {["Taiwan Strait Crisis", "6 Factions", "6 Acts", "Day 45"].map(x => <span key={x} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "999px", background: "#E6F1FB", color: "#185FA5", border: "0.5px solid #85B7EB", fontWeight: 600 }}>{x}</span>)}
+        </div>
+        <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.65 }}>Choose your faction. Each plays a different strategic game with its own win conditions, pressures, fleets, and crisis tools.</div>
       </div>
-      <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", marginBottom: "10px" }}>Choose your faction. Each plays a completely different game — different win conditions, pressures, and strategic tools.</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: "10px" }}>
         {Object.values(FACTIONS).map(f => (
           <div key={f.id} onClick={() => onPick(f.id)}
-            style={{ padding: "12px", border: `1px solid ${f.bd}`, borderRadius: "var(--border-radius-lg)", cursor: "pointer", background: "var(--color-background-primary)", transition: "all 0.15s" }}
-            onMouseEnter={e => { e.currentTarget.style.background = f.bg; }}
+            style={{ ...S.card, padding: "13px", border: `1px solid ${f.bd}`, cursor: "pointer", transition: "all 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = f.bg; e.currentTarget.style.transform = "translateY(-1px)"; }}
             onMouseLeave={e => { e.currentTarget.style.background = "var(--color-background-primary)"; }}
           >
-            <div style={{ fontSize: "12px", fontWeight: 500, color: f.color, marginBottom: "2px" }}>{f.flag} {f.name}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start", marginBottom: "2px" }}>
+              <div style={{ fontSize: "12px", fontWeight: 700, color: f.color }}>{f.flag} {f.name}</div>
+              <span style={{ fontSize: "8px", padding: "2px 6px", borderRadius: "999px", background: f.bg, color: f.color, border: `0.5px solid ${f.bd}`, whiteSpace: "nowrap" }}>PLAY</span>
+            </div>
             <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", marginBottom: "5px" }}>{f.sub}</div>
             <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", marginBottom: "6px", lineHeight: 1.4 }}>{f.tagline}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "3px", marginBottom: "5px" }}>
@@ -353,21 +360,45 @@ function FactionScreen({ onPick }: AnyRecord) {
 }
 
 function MainMenu({ onWar, onLife }: AnyRecord) {
-  return (
-    <div style={{ padding: "18px 14px", maxWidth: "760px", margin: "0 auto" }}>
-      <div style={{ marginBottom: "16px" }}>
-        <div style={{ fontSize: "22px", fontWeight: 600, letterSpacing: "0.06em", color: "var(--color-text-primary)" }}>STRAIT PROTOCOL: 2030</div>
-        <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", marginTop: "3px" }}>Choose the level of the crisis you want to play.</div>
+  const modeCard = (title, eyebrow, body, accent, bg, onClick, chips) => (
+    <button onClick={onClick}
+      style={{ ...S.panel, cursor: "pointer", padding: "18px", textAlign: "left", fontFamily: "var(--font-sans)", minHeight: "210px", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden" }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 16px 44px rgba(20,35,45,0.12)"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 10px 32px rgba(20,35,45,0.07)"; }}
+    >
+      <div>
+        <div style={{ fontSize: "9px", color: accent, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: "8px" }}>{eyebrow}</div>
+        <div style={{ fontSize: "22px", fontWeight: 750, color: "var(--color-text-primary)", marginBottom: "8px" }}>{title}</div>
+        <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.65, maxWidth: "36em" }}>{body}</div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "10px" }}>
-        <button onClick={onWar} style={{ ...S.card, cursor: "pointer", padding: "16px", textAlign: "left", fontFamily: "var(--font-sans)" }}>
-          <div style={{ fontSize: "15px", fontWeight: 600, color: "#185FA5", marginBottom: "5px" }}>War Room Mode</div>
-          <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.6 }}>Play the current strategic crisis game with factions, fleets, diplomatic choices, and national endings.</div>
-        </button>
-        <button onClick={onLife} style={{ ...S.card, cursor: "pointer", padding: "16px", textAlign: "left", fontFamily: "var(--font-sans)" }}>
-          <div style={{ fontSize: "15px", fontWeight: 600, color: "#854F0B", marginBottom: "5px" }}>Life During Chaos Mode</div>
-          <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.6 }}>Prototype a civilian daily-survival campaign with roles, markets, personal stats, and local crisis events.</div>
-        </button>
+      <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "18px" }}>
+        {chips.map(x => <span key={x} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "999px", background: bg, border: `0.5px solid ${accent}`, color: accent, fontWeight: 600 }}>{x}</span>)}
+      </div>
+    </button>
+  );
+  return (
+    <div style={{ ...S.shell, paddingTop: "28px" }}>
+      <div style={{ ...S.panel, padding: "22px", marginBottom: "12px", borderTop: "3px solid #185FA5" }}>
+        <div style={{ fontSize: "10px", color: "#3B6D11", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>Crisis Command Interface</div>
+        <div style={{ fontSize: "28px", fontWeight: 800, letterSpacing: "0.04em", color: "var(--color-text-primary)", marginBottom: "6px" }}>STRAIT PROTOCOL: 2030</div>
+        <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.65, maxWidth: "700px" }}>Pick the lens you want: run the strategic war room, or drop into a civilian survival campaign as Phase 2 starts coming online.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: "6px", marginTop: "16px" }}>
+          {[
+            ["War Room", "Playable"],
+            ["Life Mode", "Foundation"],
+            ["Build", "Local + Pages"],
+            ["Scope", "Prototype"]
+          ].map(([k, v]) => (
+            <div key={k} style={{ background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "8px 10px" }}>
+              <div style={{ fontSize: "8px", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{k}</div>
+              <div style={{ fontSize: "12px", color: "var(--color-text-primary)", fontWeight: 650, marginTop: "2px" }}>{v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "12px" }}>
+        {modeCard("War Room Mode", "Strategic Command", "Play the current strategic crisis game with factions, fleets, diplomatic choices, sudden events, and national endings.", "#185FA5", "#E6F1FB", onWar, ["Factions", "Fleets", "Crisis Cards", "Endings"])}
+        {modeCard("Life During Chaos Mode", "Civilian Survival", "Prototype the daily-survival loop with roles, spawn points, personal stats, markets, local events, and early civilian endings.", "#854F0B", "#FAEEDA", onLife, ["Spawn", "Role", "Markets", "Event Log"])}
       </div>
     </div>
   );
@@ -376,33 +407,41 @@ function MainMenu({ onWar, onLife }: AnyRecord) {
 function LifeSetupScreen({ draft, setDraft, onStart, onBack }: AnyRecord) {
   const pick = (k, v) => setDraft(d => ({ ...d, [k]: v }));
   const optionGrid = (title, keyName, items) => (
-    <div style={{ marginBottom: "12px" }}>
-      <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "5px" }}>{title}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "6px" }}>
+    <div style={{ marginBottom: "14px" }}>
+      <div style={{ fontSize: "10px", color: "#854F0B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px", fontWeight: 700 }}>{title}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: "7px" }}>
         {Object.values(items).map((it: any) => (
-          <button key={it.id} onClick={() => pick(keyName, it.id)} style={{ ...S.card, cursor: "pointer", textAlign: "left", padding: "9px", border: `1px solid ${draft[keyName] === it.id ? "#EF9F27" : "var(--color-border-tertiary)"}`, background: draft[keyName] === it.id ? "#FAEEDA" : "var(--color-background-primary)", fontFamily: "var(--font-sans)" }}>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--color-text-primary)" }}>{it.name}</div>
-            <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", lineHeight: 1.45, marginTop: "2px" }}>{it.note}</div>
+          <button key={it.id} onClick={() => pick(keyName, it.id)} style={{ ...S.card, cursor: "pointer", textAlign: "left", padding: "11px", border: `1px solid ${draft[keyName] === it.id ? "#EF9F27" : "var(--color-border-tertiary)"}`, background: draft[keyName] === it.id ? "#fff7e8" : "var(--color-background-primary)", fontFamily: "var(--font-sans)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+              <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--color-text-primary)" }}>{it.name}</div>
+              {draft[keyName] === it.id && <span style={{ fontSize: "8px", color: "#854F0B", fontWeight: 800 }}>SELECTED</span>}
+            </div>
+            <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.5, marginTop: "4px" }}>{it.note}</div>
           </button>
         ))}
       </div>
     </div>
   );
   return (
-    <div style={{ padding: "14px", maxWidth: "760px", margin: "0 auto" }}>
-      <button onClick={onBack} style={{ marginBottom: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)", padding: "6px 9px", cursor: "pointer", fontSize: "10px" }}>Back to Menu</button>
-      <div style={{ fontSize: "18px", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "3px" }}>Life During Chaos</div>
-      <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", marginBottom: "12px" }}>Create a civilian campaign profile. This is the Phase 2 foundation, not the full expansion.</div>
-      {optionGrid("Spawn Point", "spawn", LIFE_SPAWNS)}
-      {optionGrid("Role", "role", LIFE_ROLES)}
-      {optionGrid("Life Philosophy", "philosophy", LIFE_PHILOSOPHIES)}
-      <div style={{ marginBottom: "12px" }}>
-        <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "5px" }}>Campaign Length</div>
+    <div style={S.shell}>
+      <button onClick={onBack} style={{ marginBottom: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)", padding: "7px 10px", cursor: "pointer", fontSize: "10px", fontWeight: 650 }}>Back to Menu</button>
+      <div style={{ ...S.panel, padding: "16px", marginBottom: "12px", borderTop: "3px solid #EF9F27" }}>
+        <div style={{ fontSize: "10px", color: "#854F0B", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "5px" }}>Phase 2 Foundation</div>
+        <div style={{ fontSize: "22px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "5px" }}>Life During Chaos</div>
+        <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.65 }}>Create a civilian campaign profile. The current build focuses on the compact daily loop: events, markets, stats, choices, log, and endings.</div>
+      </div>
+      <div style={{ ...S.panel, padding: "14px" }}>
+        {optionGrid("Spawn Point", "spawn", LIFE_SPAWNS)}
+        {optionGrid("Role", "role", LIFE_ROLES)}
+        {optionGrid("Life Philosophy", "philosophy", LIFE_PHILOSOPHIES)}
+      <div style={{ marginBottom: "14px" }}>
+        <div style={{ fontSize: "10px", color: "#854F0B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px", fontWeight: 700 }}>Campaign Length</div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-          {LIFE_LENGTHS.map(len => <button key={len} onClick={() => pick("length", len)} style={{ padding: "7px 12px", borderRadius: "var(--border-radius-md)", border: `1px solid ${draft.length === len ? "#EF9F27" : "var(--color-border-tertiary)"}`, background: draft.length === len ? "#FAEEDA" : "var(--color-background-primary)", cursor: "pointer", fontSize: "11px" }}>{len} days</button>)}
+          {LIFE_LENGTHS.map(len => <button key={len} onClick={() => pick("length", len)} style={{ padding: "8px 13px", borderRadius: "var(--border-radius-md)", border: `1px solid ${draft.length === len ? "#EF9F27" : "var(--color-border-tertiary)"}`, background: draft.length === len ? "#fff7e8" : "var(--color-background-primary)", cursor: "pointer", fontSize: "11px", fontWeight: draft.length === len ? 750 : 500 }}>{len} days</button>)}
         </div>
       </div>
-      <button onClick={onStart} style={{ width: "100%", padding: "11px", border: "1px solid #EF9F27", borderRadius: "var(--border-radius-md)", background: "#FAEEDA", color: "#854F0B", cursor: "pointer", fontWeight: 600, fontFamily: "var(--font-sans)" }}>Start Life Mode</button>
+        <button onClick={onStart} style={{ width: "100%", padding: "12px", border: "1px solid #EF9F27", borderRadius: "var(--border-radius-md)", background: "#854F0B", color: "#fffaf0", cursor: "pointer", fontWeight: 800, fontFamily: "var(--font-sans)", letterSpacing: "0.03em" }}>Start Life Mode</button>
+      </div>
     </div>
   );
 }
@@ -410,51 +449,75 @@ function LifeSetupScreen({ draft, setDraft, onStart, onBack }: AnyRecord) {
 function LifeMetric({ label, value, limit = 100 }: AnyRecord) {
   const color = label === "debt" || label === "risk" ? (value > 70 ? "#A32D2D" : value > 45 ? "#BA7517" : "#1D9E75") : vC(value);
   return (
-    <div style={{ ...S.card, padding: "6px 7px" }}>
-      <div style={{ fontSize: "8px", textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>{label}</div>
-      <div style={{ fontSize: "14px", fontWeight: 600, color }}>{value}</div>
-      <div style={{ height: "2px", background: "var(--color-border-tertiary)", borderRadius: "2px" }}><div style={{ width: `${Math.min(100, (value / limit) * 100)}%`, background: color, height: "2px", borderRadius: "2px" }} /></div>
+    <div style={{ ...S.card, padding: "7px 8px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "baseline" }}>
+        <div style={{ fontSize: "8px", textTransform: "uppercase", color: "var(--color-text-tertiary)", letterSpacing: "0.04em" }}>{label}</div>
+        <div style={{ fontSize: "14px", fontWeight: 800, color }}>{value}</div>
+      </div>
+      <div style={{ height: "3px", background: "var(--color-border-tertiary)", borderRadius: "3px", marginTop: "5px", overflow: "hidden" }}><div style={{ width: `${Math.min(100, (value / limit) * 100)}%`, background: color, height: "3px", borderRadius: "3px" }} /></div>
     </div>
   );
 }
 
 function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, onBack }: AnyRecord) {
+  const progress = Math.round((day / profile.length) * 100);
   return (
     <div style={S.root}>
-      <div style={{ padding: "8px 14px", background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
-        <div>
-          <div style={{ fontSize: "12px", fontWeight: 600, color: "#854F0B", letterSpacing: "0.06em" }}>LIFE DURING CHAOS</div>
-          <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>{profile.spawn.name} · {profile.role.name} · {profile.philosophy.name}</div>
+      <div style={{ ...S.shell, paddingTop: "10px", paddingBottom: "10px" }}>
+        <div style={{ ...S.panel, padding: "12px 14px", borderTop: "3px solid #EF9F27" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start", flexWrap: "wrap", marginBottom: "9px" }}>
+            <div>
+              <div style={{ fontSize: "12px", fontWeight: 800, color: "#854F0B", letterSpacing: "0.07em" }}>LIFE DURING CHAOS</div>
+              <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", marginTop: "2px" }}>{profile.spawn.name} · {profile.role.name} · {profile.philosophy.name}</div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: "16px", fontWeight: 800, color: "var(--color-text-primary)" }}>Day {day}/{profile.length}</div>
+              <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>{progress}% survived</div>
+            </div>
+          </div>
+          <div style={{ height: "5px", borderRadius: "999px", background: "var(--color-border-tertiary)", overflow: "hidden" }}>
+            <div style={{ width: `${progress}%`, height: "5px", background: "#EF9F27", borderRadius: "999px" }} />
+          </div>
         </div>
-        <div style={{ fontSize: "10px", color: "var(--color-text-secondary)" }}>Day {day}/{profile.length}</div>
       </div>
-      <div style={{ padding: "8px 14px", display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "4px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
-        {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
-      </div>
-      <div style={{ padding: "7px 14px", background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
-        <div style={{ fontSize: "9px", fontWeight: 600, color: "var(--color-text-secondary)", marginBottom: "5px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Market Ticker</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "4px" }}>
-          {Object.entries(markets as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={220} />)}
+      <div style={{ ...S.shell, paddingTop: 0, paddingBottom: "10px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: "10px" }}>
+          <div style={{ ...S.panel, padding: "10px" }}>
+            <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", marginBottom: "7px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Personal Stats</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(118px,1fr))", gap: "5px" }}>
+              {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
+            </div>
+          </div>
+          <div style={{ ...S.panel, padding: "10px" }}>
+            <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", marginBottom: "7px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Market Ticker</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(86px,1fr))", gap: "5px" }}>
+              {Object.entries(markets as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={220} />)}
+            </div>
+          </div>
         </div>
       </div>
-      <div style={{ padding: "12px 14px", display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(220px,1fr)", gap: "10px" }}>
+      <div style={{ ...S.shell, paddingTop: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "10px" }}>
         <div>
-          <div style={{ ...S.card, padding: "12px", marginBottom: "8px" }}>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "4px" }}>{event.local.t}</div>
-            <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.65, marginBottom: "8px" }}>{event.local.d}</div>
-            <div style={{ fontSize: "10px", color: "#854F0B", lineHeight: 1.55, background: "#FAEEDA", borderRadius: "var(--border-radius-md)", padding: "7px 9px" }}><b>{event.role.t}:</b> {event.role.d}</div>
+          <div style={{ ...S.panel, padding: "14px", marginBottom: "8px" }}>
+            <div style={{ fontSize: "9px", color: "#185FA5", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Local Crisis Event</div>
+            <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px" }}>{event.local.t}</div>
+            <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "10px" }}>{event.local.d}</div>
+            <div style={{ fontSize: "11px", color: "#854F0B", lineHeight: 1.6, background: "#fff7e8", border: "0.5px solid #EF9F27", borderRadius: "var(--border-radius-md)", padding: "8px 10px" }}><b>{event.role.t}:</b> {event.role.d}</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {event.choices.map((c, i) => (
-              <button key={i} onClick={() => onChoice(c)} style={{ textAlign: "left", padding: "10px 12px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)", cursor: "pointer", fontSize: "11px", lineHeight: 1.45, fontFamily: "var(--font-sans)" }}>
+              <button key={i} onClick={() => onChoice(c)} style={{ ...S.card, textAlign: "left", padding: "11px 12px", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", cursor: "pointer", fontSize: "11px", lineHeight: 1.45, fontFamily: "var(--font-sans)" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "#EF9F27"; e.currentTarget.style.background = "#fffaf2"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.background = "var(--color-background-primary)"; }}
+              >
                 <Tag tag={c.tag} /><span style={{ marginLeft: "8px" }}>{c.l}</span>
               </button>
             ))}
           </div>
-          <button onClick={onBack} style={{ marginTop: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-secondary)", padding: "7px 10px", cursor: "pointer", fontSize: "10px" }}>End Run and Return to Menu</button>
+          <button onClick={onBack} style={{ marginTop: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-secondary)", padding: "8px 11px", cursor: "pointer", fontSize: "10px", fontWeight: 650 }}>End Run and Return to Menu</button>
         </div>
-        <div style={{ ...S.card, padding: "10px", maxHeight: "360px", overflow: "auto" }}>
-          <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--color-text-secondary)", marginBottom: "6px", textTransform: "uppercase" }}>Event Log</div>
+        <div style={{ ...S.panel, padding: "11px", maxHeight: "420px", overflow: "auto" }}>
+          <div style={{ fontSize: "10px", fontWeight: 800, color: "var(--color-text-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Event Log</div>
           {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No decisions recorded yet.</div> : log.slice().reverse().map((l, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>)}
         </div>
       </div>
@@ -645,7 +708,7 @@ export default function App() {
       <ManualButton onClick={() => setManualOpen(true)} />
       {manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}
       {/* Header */}
-      <div style={{ background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", padding: "8px 14px" }}>
+      <div style={{ background: "rgba(255,255,255,0.84)", borderBottom: "0.5px solid var(--color-border-tertiary)", padding: "8px 14px", boxShadow: "0 6px 20px rgba(20,35,45,0.05)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "6px" }}>
           <div>
             <div style={{ fontSize: "12px", fontWeight: 500, letterSpacing: "0.08em", color: F.color }}>STRAIT PROTOCOL: 2030</div>
@@ -667,7 +730,7 @@ export default function App() {
       </div>
 
       {/* Primary stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "3px", padding: "6px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: "5px", padding: "8px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", maxWidth: "1120px", margin: "0 auto" }}>
         {Object.entries(stats).slice(0, 6).map(([k, v]) => <StatBar key={k} label={k} value={v} />)}
       </div>
 
@@ -682,25 +745,28 @@ export default function App() {
       </div>
 
       {/* Fleet status */}
-      <div style={{ padding: "7px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
+      <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.5)" }}>
+        <div style={{ maxWidth: "1120px", margin: "0 auto" }}>
         <div style={{ fontSize: "9px", fontWeight: 500, color: "var(--color-text-secondary)", marginBottom: "5px", textTransform: "uppercase", letterSpacing: "0.05em" }}>⚓ Fleet Status · Transit ETA · Supply Days</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "3px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(270px,1fr))", gap: "5px" }}>
           {F.fleets.map((fl, i) => <FleetCard key={i} fl={fl} />)}
+        </div>
         </div>
       </div>
 
       {/* Act bar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 14px", background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 14px", background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", maxWidth: "1120px", margin: "0 auto" }}>
         <span style={{ fontSize: "10px", fontWeight: 500, color: "var(--color-text-primary)" }}>Act {act}: {ACTS[act]}</span>
         <span style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>Day {day} of 45 · Turn {turn + 1}</span>
       </div>
 
       {/* Main content */}
-      <div style={{ padding: "12px 14px" }}>
+      <div style={{ ...S.shell, paddingTop: "12px" }}>
         {phase === "choose" && (
-          <>
-            <div style={{ fontSize: "13px", fontWeight: 500, color: "var(--color-text-primary)", marginBottom: "5px", lineHeight: 1.4 }}>{sc.t}</div>
-            <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.75, marginBottom: "8px" }}>{sc.b}</div>
+          <div style={{ ...S.panel, padding: "14px" }}>
+            <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Active Crisis Card</div>
+            <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px", lineHeight: 1.35 }}>{sc.t}</div>
+            <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.75, marginBottom: "10px" }}>{sc.b}</div>
             {sc.i && (
               <div style={{ background: "var(--color-background-secondary)", borderLeft: `3px solid ${F.color}`, borderRadius: "0 var(--border-radius-md) var(--border-radius-md) 0", padding: "7px 11px", marginBottom: "12px", fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.6 }}>
                 🔍 {sc.i}
@@ -718,11 +784,11 @@ export default function App() {
                 </button>
               ))}
             </div>
-          </>
+          </div>
         )}
 
         {phase === "result" && chosen && (
-          <>
+          <div style={{ ...S.panel, padding: "14px" }}>
             <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", marginBottom: "6px" }}>{chosen.sc.t}</div>
             <div style={{ borderLeft: `3px solid ${chosen.c.type === "good" ? "#1D9E75" : chosen.c.type === "bad" ? "#E24B4A" : "#BA7517"}`, background: "var(--color-background-secondary)", borderRadius: "0 var(--border-radius-md) var(--border-radius-md) 0", padding: "11px 13px", marginBottom: "8px" }}>
               <div style={{ fontSize: "11px", fontWeight: 500, marginBottom: "5px", display: "flex", alignItems: "flex-start", gap: "6px", flexWrap: "wrap" }}>
@@ -760,7 +826,7 @@ export default function App() {
             >
               Continue → Day {Math.min(day + 3, 45)}
             </button>
-          </>
+          </div>
         )}
       </div>
     </div>
