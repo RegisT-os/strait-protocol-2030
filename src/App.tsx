@@ -134,6 +134,61 @@ const turningPointFor = (day: number, act: number, sc: AnyRecord, c: AnyRecord, 
   return { day, act, title: marker, body: `${sc.t}${largest ? ` · ${largest}` : ""}` };
 };
 
+const pressureC = (meta: AnyRecord, v: number) => meta?.riskHigh ? riskC(v) : vC(v);
+const pressureBg = (meta: AnyRecord, v: number) => meta?.riskHigh ? riskBg(v) : vBg(v);
+
+const FACTION_IDENTITY: AnyRecord = {
+  us_dem: { why: "Win through coalition legitimacy. Speed helps, but caucus pressure and funding can hollow out the mandate.", mechanic: "Legitimacy balance: keep allied confidence above caucus pressure while preserving funding.", stats: { prog: { label: "Progressive Caucus Pressure", start: 46, riskHigh: true }, alliedConf: { label: "Allied Confidence", start: 64 }, approvalFloor: { label: "Approval Floor", start: 58 }, funding: { label: "Congressional Funding", start: 62 } } },
+  us_rep: { why: "Win through deterrence without frightening allies into hedging. Hawks reward force; allies punish recklessness.", mechanic: "Deterrence bargain: raise credibility and mandate while containing allied anxiety.", stats: { hawk: { label: "Hawk Pressure", start: 64, riskHigh: true }, alliedAnxiety: { label: "Allied Anxiety", start: 42, riskHigh: true }, deterrence: { label: "Deterrence Credibility", start: 68 }, warMandate: { label: "War Mandate", start: 56 } } },
+  china: { why: "The clock is internal as much as military. Blockade gains mean little if protest risk, PLA loyalty, or legitimacy breaks first.", mechanic: "Blockade clock: raise blockade effectiveness before protest and elite pressure overtake it.", stats: { politburoUnity: { label: "Politburo Unity", start: 64 }, plaLoyalty: { label: "PLA Loyalty", start: 76 }, xiLegitimacy: { label: "Xi Legitimacy", start: 70 }, protestRisk: { label: "Protest Risk", start: 32, riskHigh: true }, blockade: { label: "Blockade Effectiveness", start: 58 } } },
+  eu: { why: "Europe wins by making economic statecraft decisive before member-state splits drain authority.", mechanic: "Sanctions fulcrum: convert sanctions leverage without collapsing council unity or energy resilience.", stats: { councilUnity: { label: "Council Unity", start: 58 }, energyResilience: { label: "Energy Resilience", start: 52 }, sanctionsLeverage: { label: "Sanctions Leverage", start: 66 }, defectionRisk: { label: "Defection Risk", start: 36, riskHigh: true } } },
+  un: { why: "The UN cannot win by force. It wins when access, observers, and P5 language survive long enough to become a ceasefire.", mechanic: "Access versus paralysis: build corridors and observers while P5 consensus stays above collapse.", stats: { p5Consensus: { label: "P5 Consensus", start: 42 }, humanitarianAccess: { label: "Humanitarian Access", start: 56 }, observerCredibility: { label: "Observer Credibility", start: 52 }, ceasefireFramework: { label: "Ceasefire Framework", start: 34 } } },
+  russia: { why: "Chaos is profitable until NATO re-centers on Europe. Every auction carries an encirclement price.", mechanic: "Chaos auction: grow energy leverage and Ukraine opportunity while NATO alert stays manageable.", stats: { oligarchLoyalty: { label: "Oligarch Loyalty", start: 66 }, natoAlert: { label: "NATO Alert Level", start: 60, riskHigh: true }, energyLeverage: { label: "Energy Leverage", start: 72 }, ukraineOpportunity: { label: "Ukraine Opportunity", start: 58 } } },
+  north_korea: { why: "Leverage rises with missile drama, but food shortage and elite fear can turn bargaining into regime risk.", mechanic: "Extortion ladder: climb missile pressure for concessions while food reserve and coup risk remain survivable.", stats: { kimLoyalty: { label: "Kim Loyalty", start: 76 }, foodReserve: { label: "Food Reserve", start: 42 }, militaryLoyalty: { label: "Military Loyalty", start: 64 }, coupRisk: { label: "Coup Risk", start: 28, riskHigh: true }, missileLadder: { label: "Missile Ladder", start: 38, riskHigh: true } } },
+  asean: { why: "ASEAN survives by balancing neutrality, Malacca control, currency defense, and member-state alignment.", mechanic: "Neutrality balance: keep unity and currency stability high while China and US dependency avoid capture.", stats: { aseanUnity: { label: "ASEAN Unity", start: 55 }, malaccaControl: { label: "Malacca Control", start: 78 }, currencyStability: { label: "Currency Stability", start: 48 }, singaporePosition: { label: "Singapore Position", start: 62 }, malaysiaPosition: { label: "Malaysia Position", start: 52 }, indonesiaPosition: { label: "Indonesia Position", start: 54 }, vietnamPosition: { label: "Vietnam Position", start: 58 }, philippinesPosition: { label: "Philippines Position", start: 60 }, chinaDependency: { label: "China Dependency", start: 44, riskHigh: true }, usDependency: { label: "US Dependency", start: 42, riskHigh: true } } },
+};
+const factionMeta = (fid: string) => FACTION_IDENTITY[fid] || { stats: {}, why: "", mechanic: "" };
+const factionPressureKeys = (fid: string) => Object.keys(factionMeta(fid).stats || {});
+const factionInitialStats = (fid: string, base: StatMap) => ({ ...base, ...Object.fromEntries(factionPressureKeys(fid).map(k => [k, factionMeta(fid).stats[k].start])) });
+const factionPressureImpact = (fid: string, c: AnyRecord, crisis: StatMap): StatMap => {
+  const cat = categoryOf(c), e = c.e || {}, d: StatMap = {}, text = `${c.l || ""} ${c.o || ""}`.toLowerCase();
+  const add = (k: string, v: number) => { d[k] = (d[k] || 0) + v; };
+  if (fid === "us_dem") { if (cat === "Military") { add("prog", 7 + (c.strike ? 5 : 0)); add("alliedConf", 4); add("approvalFloor", -4); add("funding", -3); } if (cat === "Diplomacy" || cat === "Humanitarian") { add("prog", -5); add("alliedConf", 5); add("approvalFloor", 2); } if (cat === "Finance" || cat === "Logistics") add("funding", Number(e.chest || 0) < 0 ? -6 : 3); }
+  if (fid === "us_rep") { if (cat === "Military") { add("deterrence", 7 + (c.strike ? 4 : 0)); add("hawk", -4); add("warMandate", 4); add("alliedAnxiety", 6 + (c.strike ? 4 : 0)); } if (cat === "Diplomacy" || cat === "Humanitarian") { add("hawk", 6); add("alliedAnxiety", -5); add("warMandate", -3); } if (cat === "Intelligence" || cat === "Cyber") add("deterrence", 4); }
+  if (fid === "china") { if (cat === "Military") { add("blockade", 8); add("plaLoyalty", 5); add("protestRisk", 5 + (c.strike ? 5 : 0)); add("xiLegitimacy", 3); } if (cat === "Diplomacy") { add("politburoUnity", 3); add("plaLoyalty", -4); add("protestRisk", -4); add("blockade", -3); } if (cat === "Finance" || Number(e.economy || 0) < 0) { add("protestRisk", 5); add("xiLegitimacy", -3); } }
+  if (fid === "eu") { if (cat === "Finance") { add("sanctionsLeverage", 7); add("energyResilience", Number(e.economy || 0) < 0 ? -4 : 2); add("defectionRisk", Number(e.unity || 0) < 0 ? 6 : -3); } if (cat === "Diplomacy" || cat === "Humanitarian") { add("councilUnity", 5); add("defectionRisk", -4); } if (cat === "Military") { add("councilUnity", -5); add("sanctionsLeverage", 3); } }
+  if (fid === "un") { if (cat === "Humanitarian" || cat === "Logistics") { add("humanitarianAccess", 8); add("observerCredibility", 4); add("ceasefireFramework", 3); } if (cat === "Diplomacy") { add("p5Consensus", 5); add("ceasefireFramework", 6); } if (cat === "Military" || cat === "Domestic Politics") { add("p5Consensus", -6); add("humanitarianAccess", -3); } }
+  if (fid === "russia") { if (cat === "Finance" || cat === "Logistics") { add("energyLeverage", 6); add("oligarchLoyalty", 4); } if (cat === "Military" || cat === "Intelligence") { add("ukraineOpportunity", 7); add("natoAlert", 7 + (c.strike ? 4 : 0)); add("oligarchLoyalty", -3); } if (cat === "Diplomacy") { add("natoAlert", -6); add("oligarchLoyalty", 2); } }
+  if (fid === "north_korea") { if (cat === "Military") { add("missileLadder", 9 + (c.strike ? 5 : 0)); add("kimLoyalty", 4); add("militaryLoyalty", 5); add("foodReserve", -4); add("coupRisk", -2); } if (cat === "Diplomacy" || cat === "Humanitarian") { add("foodReserve", 8); add("coupRisk", -4); add("kimLoyalty", -2); } if (Number(e.food || 0) < 0) { add("coupRisk", 5); add("foodReserve", -3); } }
+  if (fid === "asean") { if (cat === "Diplomacy" || cat === "Humanitarian") { add("aseanUnity", 5); add("currencyStability", 3); } if (cat === "Military") { add("malaccaControl", 7); add("aseanUnity", Number(e.unity || 0) < 0 ? -5 : 2); add("currencyStability", -4); } if (cat === "Finance") { add("currencyStability", 8); add("aseanUnity", 3); } if (text.includes("china") || text.includes("yuan") || text.includes("bri")) add("chinaDependency", 7); if (text.includes("us ") || text.includes("u.s") || text.includes("american")) add("usDependency", 7); if (Number(e.malacca || 0) > 0) add("malaccaControl", 4); }
+  if (crisis.mediaPanic >= 65) add(fid === "china" ? "protestRisk" : fid === "north_korea" ? "coupRisk" : "approvalFloor", -2);
+  return d;
+};
+const factionTriggeredEvent = (fid: string, st: StatMap, crisis: StatMap, used: Set<string>) => {
+  const events: AnyRecord = {
+    us_dem: [{ id: "dem_caucus_revolt", when: () => st.prog >= 68 && st.funding < 55, t: "Progressive Caucus Revolt", d: "The caucus threatens to freeze the next supplemental unless the White House publishes tighter war-powers guardrails.", e: { prog: -8, funding: -4, domestic: 5, military: -3 }, crisis: { publicTrust: 3, allianceCohesion: 2 } }, { id: "dem_allied_room", when: () => st.alliedConf >= 76 && crisis.allianceCohesion >= 62, t: "Allied Supermajority Holds", d: "Five allied capitals publicly back the process. Legitimacy is producing operational cover.", e: { alliedConf: 6, credibility: 5, coalition: 4 }, crisis: { allianceCohesion: 5, mediaPanic: -3 } }],
+    us_rep: [{ id: "rep_allied_panic", when: () => st.alliedAnxiety >= 68, t: "Allied Anxiety Cable", d: "Tokyo, Canberra, and Berlin ask whether deterrence has become escalation by another name.", e: { alliedAnxiety: -6, deterrence: -3, credibility: -4 }, crisis: { allianceCohesion: -6, mediaPanic: 4 } }, { id: "rep_deterrence_rally", when: () => st.deterrence >= 78 && st.warMandate >= 62, t: "Deterrence Rally", d: "Congressional hawks and defense governors align behind a Pacific readiness package.", e: { warMandate: 7, military: 4 }, crisis: { publicTrust: 3, escalationLevel: 2 } }],
+    china: [{ id: "china_protest", when: () => st.protestRisk >= 62, t: "Coastal Protest Wave", d: "Export layoffs and war rumors trigger visible unrest in coastal cities. The censors are no longer enough.", e: { protestRisk: -6, xiLegitimacy: -5, domestic: -5 }, crisis: { mediaPanic: 5, financialContagion: 3 } }, { id: "china_blockade_clock", when: () => st.blockade >= 76 && st.plaLoyalty >= 68, t: "Blockade Clock Accelerates", d: "The quarantine tightens. Taiwan fuel planners talk in days, not weeks.", e: { blockade: 5, plaLoyalty: 3, military: 5 }, crisis: { shippingInsuranceCost: 5, escalationLevel: 4 } }],
+    eu: [{ id: "eu_defection", when: () => st.defectionRisk >= 62, t: "Member-State Defection Threat", d: "Two capitals may break sanctions unity unless energy relief arrives immediately.", e: { councilUnity: -6, defectionRisk: -5, energyResilience: -3 }, crisis: { allianceCohesion: -4, oilShock: 3 } }, { id: "eu_sanctions_window", when: () => st.sanctionsLeverage >= 78 && st.councilUnity >= 55, t: "Sanctions Window Opens", d: "Markets believe Brussels can deliver a coordinated package. Leverage becomes real.", e: { sanctionsLeverage: 6, credibility: 5 }, crisis: { financialContagion: 3, allianceCohesion: 3 } }],
+    un: [{ id: "un_corridor", when: () => st.humanitarianAccess >= 72 && st.p5Consensus >= 42, t: "Relief Corridor Accepted", d: "Military liaisons accept a notification corridor. Aid begins moving through ASEAN ports.", e: { humanitarianAccess: 6, observerCredibility: 5, hum: 5 }, crisis: { humanitarianDamage: -7, refugeePressure: -4 } }, { id: "un_p5_paralysis", when: () => st.p5Consensus <= 28, t: "P5 Paralysis", d: "The Council chamber becomes theater. Agencies improvise outside formal authority.", e: { p5Consensus: 4, credibility: -5, hum: -4 }, crisis: { publicTrust: -3, humanitarianDamage: 5 } }],
+    russia: [{ id: "russia_nato_tripwire", when: () => st.natoAlert >= 78, t: "NATO Tripwire Activated", d: "NATO planners shift attention back to Europe. The Taiwan distraction is no longer free.", e: { natoAlert: -5, ukraineOpportunity: -6, military: -3 }, crisis: { allianceCohesion: 4, nuclearRisk: 3 } }, { id: "russia_energy_premium", when: () => st.energyLeverage >= 82 && st.oligarchLoyalty >= 60, t: "Energy Premium Captured", d: "Buyers accept Moscow's crisis premium. The auction is ugly, but it pays.", e: { economy: 6, chest: 5, oligarchLoyalty: 4 }, crisis: { oilShock: 4, financialContagion: 2 } }],
+    north_korea: [{ id: "nk_coup_warning", when: () => st.coupRisk >= 58 || st.foodReserve <= 24, t: "Coup Warning", d: "Security services report unusual corps-level calls. Food scarcity is turning elite anxiety into movement.", e: { coupRisk: -5, kimLoyalty: -4, militaryLoyalty: -3 }, crisis: { nuclearRisk: 4, mediaPanic: 3 } }, { id: "nk_extortion_pays", when: () => st.missileLadder >= 72 && st.coupRisk < 55, t: "Extortion Pays", d: "Both superpowers quietly raise their offers. The missile ladder is dangerous, but the price is higher now.", e: { foodReserve: 6, fuel: 5, kimLoyalty: 4 }, crisis: { nuclearRisk: 3, publicTrust: -2 } }],
+    asean: [{ id: "asean_currency_break", when: () => st.currencyStability <= 28, t: "Currency Defense Breaks", d: "Regional currencies gap down at open. Neutrality becomes harder when cabinets fear food-price protests.", e: { currencyStability: 6, aseanUnity: -5, economy: -4 }, crisis: { financialContagion: 6, foodInflation: 4 } }, { id: "asean_neutrality_premium", when: () => st.aseanUnity >= 70 && st.malaccaControl >= 74, t: "Neutrality Premium", d: "Both blocs court ASEAN instead of threatening it. Malacca control becomes bargaining power.", e: { aseanUnity: 4, credibility: 5, currencyStability: 4 }, crisis: { shippingInsuranceCost: -4, allianceCohesion: 3 } }],
+  };
+  return (events[fid] || []).find(e => !used.has(e.id) && e.when());
+};
+const factionEndingNote = (fid: string, st: StatMap) => {
+  if (fid === "us_dem") return st.alliedConf > st.prog ? "Coalition legitimacy outpaced domestic caucus pressure." : "Domestic caucus pressure constrained the coalition strategy.";
+  if (fid === "us_rep") return st.deterrence > 72 && st.alliedAnxiety < 60 ? "Deterrence held without fully panicking allies." : "The deterrence strategy left allied anxiety as a lasting cost.";
+  if (fid === "china") return st.blockade > 72 && st.protestRisk < 55 ? "The blockade clock beat the domestic pressure clock." : "Internal pressure limited what the blockade could achieve.";
+  if (fid === "eu") return st.sanctionsLeverage > 72 && st.councilUnity > 55 ? "EU economic statecraft stayed unified enough to matter." : "Council splits blunted Europe's leverage.";
+  if (fid === "un") return st.humanitarianAccess > 68 && st.ceasefireFramework > 55 ? "Humanitarian access matured into a ceasefire architecture." : "Humanitarian access remained too fragile to define the settlement.";
+  if (fid === "russia") return st.energyLeverage > 76 && st.natoAlert < 70 ? "Russia profited from chaos without fully reawakening NATO." : "The chaos auction raised NATO alert alongside Russian leverage.";
+  if (fid === "north_korea") return st.foodReserve > 50 && st.coupRisk < 45 ? "The regime extracted concessions without letting scarcity become a coup vector." : "Food and coup risk remained the real ceiling on Pyongyang's leverage.";
+  if (fid === "asean") return st.aseanUnity > 65 && st.currencyStability > 45 ? "ASEAN's neutrality survived because the bloc and currencies held together." : "Neutrality was weakened by bloc fracture and currency pressure.";
+  return "";
+};
+
 const FACTIONS = {
   us_dem: { id: "us_dem", flag: "🇺🇸", name: "United States", sub: "Democrat Administration", color: "#185FA5", bd: "#85B7EB", bg: "#E6F1FB", tagline: "Multilateral juggler — coalition or bust", pressure: "Progressive caucus · Allied burden disputes · UN credibility · Recession fear", traits: ["Multilateral", "Sanctions-first", "Domestic division", "Coalition"], intel: "NSC emergency session. PLAN blockaded Taiwan's eastern ports — Day 1. Progressive caucus demands UN vote before any military posture. JCS says delay = weakness. Treasury: 90-day conflict = 68% recession probability.", startStats: { stability: 68, military: 78, economy: 72, credibility: 80, global: 75, domestic: 62, coalition: 70, resolve: 65, fuel: 85, supply: 80, chest: 75, proxy: 60 }, fleets: [{ name: "USS Gerald R. Ford CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "West Pacific", threat: "High", eta: 0, sup: 28, note: "On station. Strike-ready." }, { name: "USS Ronald Reagan CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "South China Sea", threat: "High", eta: 0, sup: 22, note: "Resupply needed Day 22." }, { name: "USS Nimitz CSG", type: "Carrier Strike Group", u: 9, status: "standby", front: "Pearl Harbor", threat: "None", eta: 7, sup: 45, note: "7-day transit to Taiwan Strait." }, { name: "USS Truman CSG", type: "Carrier Strike Group", u: 9, status: "transit", front: "Indian Ocean", threat: "Medium", eta: 12, sup: 40, note: "12 days from theater." }, { name: "SSN Wolf Pack Alpha", type: "Submarine Squadron", u: 6, status: "covert", front: "Taiwan Strait", threat: "Critical", eta: 0, sup: 60, note: "Undetected. PLAN unaware." }, { name: "Makin Island ARG", type: "Amphibious Ready Group", u: 5, status: "standby", front: "Okinawa", threat: "Low", eta: 2, sup: 35, note: "2,200 Marines aboard." }, { name: "B-52H Strategic Wing", type: "Strategic Bombers", u: 12, status: "on-station", front: "Andersen AFB Guam", threat: "High", eta: 0, sup: 30, note: "Armed. 4hr sortie to Strait." }] },
   china: { id: "china", flag: "🇨🇳", name: "People's Republic of China", sub: "CMC War Cabinet", color: "#A32D2D", bd: "#F09595", bg: "#FCEBEB", tagline: "Race against coalition — reunification before the window closes", pressure: "Politburo hardliners · Economy -12% · Xi legitimacy · PLA insubordination · Fuel crisis Day 18", traits: ["Blockade master", "Economic leverage", "Info warfare", "Proxy network"], intel: "Operation Dongshan Phase 1 active. Blockade Day 3. Taiwan fuel 61%. US carrier 900km closing. PLAAF hits critical fuel Day 14. Economy -12%. Politburo 4-3 split.", startStats: { stability: 74, military: 86, economy: 68, credibility: 48, global: 52, domestic: 78, politburo: 72, pla: 82, fuel: 72, supply: 65, chest: 80, proxy: 75 }, fleets: [{ name: "PLAN Eastern Theater SAG", type: "Surface Action Group", u: 34, status: "blockade", front: "Taiwan Strait", threat: "Active", eta: 0, sup: 18, note: "CRITICAL: resupply needed Day 18." }, { name: "PLAN Southern Theater", type: "Surface Action Group", u: 22, status: "deployed", front: "South China Sea", threat: "Active", eta: 0, sup: 21, note: "Controlling Spratly approach." }, { name: "PLAN SSN/SSBN Fleet", type: "Submarine Force", u: 18, status: "covert", front: "Deep Pacific", threat: "Strategic", eta: 0, sup: 55, note: "2 SSBNs at alert." }, { name: "PLAAF Eastern Command", type: "Air Fleet", u: 280, status: "combat air patrol", front: "Median Line", threat: "Active", eta: 0, sup: 14, note: "CRITICAL: unsustainable Day 14." }, { name: "PLA Amphibious Fleet", type: "Amphibious Force", u: 46, status: "staging", front: "Fujian Coast", threat: "Imminent", eta: 1, sup: 30, note: "D-Day capable. 1-day crossing." }, { name: "PLAN North Sea Fleet", type: "Surface Group", u: 16, status: "alert", front: "Yellow Sea", threat: "Medium", eta: 0, sup: 25, note: "Watching USFK flank." }, { name: "Russian Arctic Convoy", type: "Logistics Convoy", u: 8, status: "transit", front: "Arctic Route", threat: "None", eta: 3, sup: 999, note: "Fuel en route. Arrives Day 3." }] },
@@ -142,6 +197,21 @@ const FACTIONS = {
   asean: { id: "asean", flag: "🌏", name: "ASEAN Bloc", sub: "Rotating Summit Chair", color: "#854F0B", bd: "#EF9F27", bg: "#FAEEDA", tagline: "Swing vote — Malacca leverage or economic ruin", pressure: "US/China split · Malaysia vs Philippines/Vietnam · Currency collapse · PLAN in Malacca", traits: ["Malacca leverage", "Swing vote", "Bloc fracture risk", "No hard power"], intel: "ASEAN summit fracturing. Philippines + Vietnam want US alignment. Malaysia + Indonesia lean neutral. Singapore playing both sides. Malacca = 40% global trade. Ringgit -22%, rupiah -26%.", startStats: { stability: 62, military: 45, economy: 70, credibility: 58, global: 65, domestic: 60, unity: 55, malacca: 80, fuel: 65, supply: 72, chest: 45, proxy: 35 }, fleets: [{ name: "Singapore RSS Taskforce", type: "Frigate/Corvette", u: 7, status: "combat alert", front: "Strait of Malacca", threat: "Medium", eta: 0, sup: 30, note: "Best equipped navy in SEA." }, { name: "Indonesian Navy TNI-AL", type: "Frigate/Patrol", u: 14, status: "standby", front: "Natuna Islands EEZ", threat: "High", eta: 1, sup: 25, note: "Natuna EEZ contested by China." }, { name: "Philippine Navy + EDCA", type: "Patrol + US Access", u: 9, status: "deployed", front: "West Philippine Sea", threat: "High", eta: 0, sup: 20, note: "Subic Bay + Clark AFB active." }, { name: "Royal Malaysian Navy", type: "Frigate Group", u: 6, status: "standby", front: "South China Sea", threat: "Medium", eta: 1, sup: 28, note: "Frozen pending cabinet decision." }, { name: "Vietnam People's Navy", type: "Coastal Defense", u: 11, status: "combat alert", front: "Paracel/Spratly", threat: "High", eta: 0, sup: 22, note: "Battle-hardened. Anti-PLAN." }, { name: "PLAN SAG HOSTILE", type: "PLAN Surface Group", u: 14, status: "approaching", front: "Southern Malacca", threat: "Critical", eta: 1, sup: 0, note: "HOSTILE. Shandong + 14 vessels." }, { name: "Malacca Control Node", type: "Strait Control", u: 0, status: "active", front: "Singapore node", threat: "None", eta: 0, sup: 999, note: "40% global trade. 60% China energy." }] },
   eu: { id: "eu", flag: "🇪🇺", name: "European Union", sub: "Council Emergency Presidency", color: "#3B6D11", bd: "#97C459", bg: "#EAF3DE", tagline: "Economic surgeon — ceasefire without firing a shot", pressure: "27-member splits · Germany 200B China trade · Baltic states want war · Russian energy blackmail", traits: ["Sanctions toolkit", "Diplomatic reach", "Energy vulnerable", "Financial leverage"], intel: "Emergency EU Council. Germany: 200B at stake. Baltics: Maximum pressure NOW. ECB: recession threshold Day 45. China halted rare earths to 8 EU members. Russia offering gas at a price.", startStats: { stability: 65, military: 38, economy: 78, credibility: 72, global: 82, domestic: 60, unity: 58, leverage: 74, fuel: 55, supply: 70, chest: 70, proxy: 45 }, fleets: [{ name: "FS Charles de Gaulle CSG", type: "Carrier Strike Group", u: 6, status: "standby", front: "Mediterranean", threat: "None", eta: 18, sup: 40, note: "18-day transit to Taiwan theater." }, { name: "EU Maritime Taskforce", type: "Frigate Squadron", u: 8, status: "standby", front: "Indian Ocean", threat: "None", eta: 14, sup: 35, note: "Joint FR/DE/NL command." }, { name: "French SSBN Deterrent", type: "Strategic Submarine", u: 3, status: "patrol", front: "Atlantic", threat: "None", eta: 0, sup: 90, note: "Nuclear deterrent. Non-deployable." }, { name: "German Frigate Group", type: "Frigate Group", u: 4, status: "standby", front: "Baltic Sea", threat: "Low", eta: 21, sup: 30, note: "Bundestag vote required." }] },
   un: { id: "un", flag: "UN", name: "United Nations", sub: "Secretary-General Crisis Cell", color: "#087C9A", bd: "#70C6D8", bg: "#E1F5F8", tagline: "Legitimacy is your hull; humanitarian access is your fleet", pressure: "P5 vetoes · refugee surge · aid corridors · peacekeeper safety", traits: ["Humanitarian corridors", "Ceasefire broker", "Legitimacy", "P5 management"], intel: "The Security Council is frozen, aid agencies are overloaded, and both blocs still need someone credible enough to host the room. Your power is process under fire.", startStats: { stability: 55, military: 5, economy: 50, credibility: 64, global: 78, domestic: 50, p5: 42, hum: 62, fuel: 50, supply: 60, chest: 40, proxy: 30 }, fleets: [{ name: "WFP Relief Convoy", type: "Relief Shipping", u: 9, status: "standby", front: "Singapore", threat: "High", eta: 4, sup: 45, note: "Food and medicine blocked pending corridor deal." }, { name: "UNMCC Liaison Cell", type: "Civil-Military Coordination", u: 0, status: "active", front: "Geneva", threat: "Medium", eta: 0, sup: 999, note: "Maintains deconfliction lines with all major commands." }, { name: "Peacekeeper Evacuation Lift", type: "Chartered Airlift", u: 18, status: "standby", front: "Okinawa", threat: "Medium", eta: 2, sup: 20, note: "Can evacuate observers or move medical teams." }] },
+};
+
+(FACTIONS as AnyRecord).us_rep = {
+  ...(FACTIONS as AnyRecord).us_dem,
+  id: "us_rep",
+  name: "United States",
+  sub: "Republican Administration",
+  color: "#712B13",
+  bd: "#F0997B",
+  bg: "#FAECE7",
+  tagline: "Deterrence hawk - strength without alliance panic",
+  pressure: "Hawk pressure - allied anxiety - mandate politics - deterrence credibility",
+  traits: ["Deterrence", "Forward posture", "Congressional mandate", "Alliance anxiety"],
+  intel: "The Situation Room opens with hawks demanding visible force. Allies want protection, not a blank check for escalation. Your edge is speed; your danger is making partners fear the solution.",
+  startStats: { ...(FACTIONS as AnyRecord).us_dem.startStats, credibility: 74, domestic: 60, coalition: 62, resolve: 74, chest: 72 },
 };
 
 const SCENARIOS = {
@@ -379,6 +449,13 @@ const ENDINGS = {
     { cond: () => true, grade: "B-", title: "Useful Imperfection", body: "The UN remained flawed, slow, and necessary. The crisis was not solved in Turtle Bay, but enough doors stayed open for others to walk through." },
   ],
 };
+(ENDINGS as AnyRecord).us_rep = [
+  { cond: s => (s.deterrence || 0) > 78 && (s.alliedAnxiety || 0) < 58 && (s.warMandate || 0) > 64, grade: "A", title: "Deterrence Doctrine", body: "The administration turned speed, force posture, and congressional mandate into a credible Pacific deterrent without breaking the alliance system." },
+  { cond: s => (s.alliedAnxiety || 0) > 76, grade: "C-", title: "Alliance Panic", body: "Deterrence became indistinguishable from escalation in allied capitals. Partners stayed close publicly and hedged privately." },
+  { cond: s => (s.hawk || 0) > 78 && (s.warMandate || 0) < 45, grade: "D", title: "Mandate Trap", body: "The hawks kept demanding more visible force, but the public mandate never caught up. The crisis became a domestic test of nerve." },
+  { cond: s => (s.deterrence || 0) > 72, grade: "B+", title: "Hard Line Held", body: "The crisis ended with deterrence credibility higher than it began, though allied anxiety remained the price of speed." },
+  { cond: () => true, grade: "B-", title: "Uneasy Strength", body: "The United States projected strength and avoided collapse, but the coalition will spend years deciding whether it was reassured or frightened." },
+];
 
 function getEnding(fid, st, context: AnyRecord = {}) {
   const list = ENDINGS[fid] || [];
@@ -393,12 +470,15 @@ function getEnding(fid, st, context: AnyRecord = {}) {
     crisis.humanitarianDamage >= 60 ? "Humanitarian damage became one of the defining costs of the crisis." : "",
     crisis.allianceCohesion >= 70 ? "Alliance cohesion held strongly through the final act." : "",
     crisis.publicTrust < 40 ? "Public trust was badly damaged by the endgame." : "",
+    factionEndingNote(fid, st),
   ].filter(Boolean).join(" ");
   return { ...base, body: notes ? `${base.body} ${notes}` : base.body, context };
 }
 
 function buildQ(fid) {
-  const pool = [...(SCENARIOS[fid] || []), ...(FABLE_SCENARIO_EXPANSIONS[fid] || [])];
+  const scenarioBase = SCENARIOS[fid] || (fid === "us_rep" ? SCENARIOS.us_dem : []);
+  const expansionBase = FABLE_SCENARIO_EXPANSIONS[fid] || (fid === "us_rep" ? FABLE_SCENARIO_EXPANSIONS.us_dem : []);
+  const pool = [...scenarioBase, ...expansionBase];
   const byA = {};
   pool.forEach(s => { if (!byA[s.a]) byA[s.a] = []; byA[s.a].push(s); });
   const q = [];
@@ -499,6 +579,24 @@ function StatBar({ label, value }: AnyRecord) {
   );
 }
 
+function PressureMetric({ id, value, meta }: AnyRecord) {
+  const color = pressureC(meta, value);
+  const bg = pressureBg(meta, value);
+  const status = meta?.riskHigh ? (value < 35 ? "Contained" : value < 65 ? "Watch" : "Critical") : (value >= 65 ? "Strong" : value >= 40 ? "Fragile" : "Weak");
+  return (
+    <div style={{ background: bg, border: `0.5px solid ${color}`, borderRadius: "var(--border-radius-md)", padding: "6px 7px", minHeight: "55px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "baseline" }}>
+        <div style={{ fontSize: "8px", color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", lineHeight: 1.2 }}>{meta?.label || id}</div>
+        <div style={{ fontSize: "14px", fontWeight: 800, color }}>{value}</div>
+      </div>
+      <div style={{ height: "3px", borderRadius: "999px", background: "rgba(255,255,255,0.65)", overflow: "hidden", margin: "4px 0 3px" }}>
+        <div style={{ width: `${value}%`, height: "3px", borderRadius: "999px", background: color }} />
+      </div>
+      <div style={{ fontSize: "8px", color, fontWeight: 700 }}>{status}</div>
+    </div>
+  );
+}
+
 function CrisisTile({ id, value }: AnyRecord) {
   const meta = CRISIS_META[id] || { label: id };
   const color = crisisC(id, value);
@@ -519,21 +617,24 @@ function CrisisTile({ id, value }: AnyRecord) {
 }
 
 function StrategicDashboard({ F, fid, stats, crisis, counts }: AnyRecord) {
-  const focus = factionFocus(fid, stats);
+  const identity = factionMeta(fid);
+  const pressureKeys = factionPressureKeys(fid);
   const posture = strategicPosture(fid, stats, crisis);
   const used = Object.entries(counts).filter(([, v]) => Number(v) > 0);
   return (
     <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.72)" }}>
-      <div style={{ maxWidth: "1120px", margin: "0 auto", display: "grid", gridTemplateColumns: "minmax(240px,1.1fr) minmax(260px,1.4fr) minmax(220px,1fr)", gap: "8px" }}>
+      <div style={{ maxWidth: "1120px", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: "8px" }}>
         <div style={{ ...S.card, padding: "10px", border: `1px solid ${F.bd}` }}>
           <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 800 }}>Strategic Posture</div>
           <div style={{ fontSize: "15px", fontWeight: 800, color: "var(--color-text-primary)", marginTop: "3px" }}>{posture}</div>
           <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, marginTop: "5px" }}>{F.tagline}</div>
+          <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", lineHeight: 1.45, marginTop: "5px" }}>{identity.mechanic}</div>
         </div>
         <div style={{ ...S.card, padding: "10px" }}>
           <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 800, marginBottom: "6px" }}>Faction Pressure</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(90px,1fr))", gap: "5px" }}>
-            {focus.map(k => <StatBar key={k} label={k} value={stats[k]} />)}
+          <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", lineHeight: 1.45, marginBottom: "7px" }}>{identity.why}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(118px,1fr))", gap: "5px" }}>
+            {pressureKeys.map(k => <PressureMetric key={k} id={k} value={stats[k]} meta={identity.stats[k]} />)}
           </div>
         </div>
         <div style={{ ...S.card, padding: "10px" }}>
@@ -921,6 +1022,7 @@ export default function App() {
   const [warLog, setWarLog] = useState<string[]>([]);
   const [timeline, setTimeline] = useState<any[]>([]);
   const [decisionCounts, setDecisionCounts] = useState<AnyRecord>(emptyDecisionCounts());
+  const [usedFactionEvents, setUsedFactionEvents] = useState<Set<string>>(new Set());
   const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
   const [lifeProfile, setLifeProfile] = useState<any>(null);
   const [lifeStats, setLifeStats] = useState<StatMap>({});
@@ -934,12 +1036,12 @@ export default function App() {
 
   const startGame = useCallback((f) => {
     const q = buildQ(f);
-    setFid(f); setStats({ ...FACTIONS[f].startStats }); setQueue(q); setQi(0);
+    setFid(f); setStats(factionInitialStats(f, { ...FACTIONS[f].startStats })); setQueue(q); setQi(0);
     setDay(1); setAct(1); setTurn(0); setPhase("choose"); setChosen(null); setSudden(null);
     setUsedSudden(new Set()); setStrikes(0); setEnding(null);
     setOil(145); setRecession(22); setNukeAlert(1); setTaiwanFuel(61);
     setCrisis({ ...DEFAULT_CRISIS });
-    setWarLog([]); setTimeline([]); setDecisionCounts(emptyDecisionCounts());
+    setWarLog([]); setTimeline([]); setDecisionCounts(emptyDecisionCounts()); setUsedFactionEvents(new Set());
     setScreen("game");
   }, []);
 
@@ -956,9 +1058,10 @@ export default function App() {
   }, [lifeDraft]);
 
   const pickChoice = useCallback((c, sc) => {
-    const ns = apE(stats, c.e);
     const crisisDelta = crisisImpact(c);
     const nextCrisis = applyCrisis(crisis, crisisDelta);
+    const pressureDelta = factionPressureImpact(fid, c, nextCrisis);
+    const ns = apE(apE(stats, c.e), pressureDelta);
     const nt = turn + 1;
     const nd = Math.min(day + rnd(2, 4), 45);
     const na = Math.min(Math.ceil(nt / 7), 6);
@@ -976,20 +1079,24 @@ export default function App() {
     setDecisionCounts(d => ({ ...d, [category]: (d[category] || 0) + 1 }));
     setWarLog(l => [...l, entry].slice(-16));
     setTimeline(t => [...t, point].slice(-10));
-    setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc, crisisDelta, category });
+    setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc, crisisDelta, pressureDelta, category });
+    const factionEvent = factionTriggeredEvent(fid, ns, nextCrisis, usedFactionEvents);
     const suddenChance = 0.18 + Math.max(nextCrisis.escalationLevel, nextCrisis.financialContagion, nextCrisis.mediaPanic, nextCrisis.cyberDisruption, 0) / 280;
-    if (Math.random() < suddenChance) {
+    if (factionEvent) {
+      setUsedFactionEvents(u => new Set([...u, factionEvent.id]));
+      setSudden(factionEvent);
+    } else if (Math.random() < suddenChance) {
       const se = pickSuddenEvent(usedSudden, nextCrisis);
       if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden(se); }
     }
     setPhase("result");
-  }, [stats, crisis, turn, day, act, F, usedSudden, recession, nukeAlert]);
+  }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, recession, nukeAlert]);
 
   const nextTurn = useCallback(() => {
     let ns = stats;
     if (sudden) {
       ns = apE(stats, sudden.e);
-      const nextCrisis = applyCrisis(crisis, SUDDEN_CRISIS_EFFECTS[sudden.id] || {});
+      const nextCrisis = applyCrisis(crisis, sudden.crisis || SUDDEN_CRISIS_EFFECTS[sudden.id] || {});
       setStats(ns); setCrisis(nextCrisis); setSudden(null);
       setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
       setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
@@ -1064,7 +1171,7 @@ export default function App() {
 
       {/* Secondary stats */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", padding: "4px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
-        {Object.entries(stats).slice(6).map(([k, v]) => (
+        {Object.entries(stats).slice(6).filter(([k]) => !factionPressureKeys(fid).includes(k)).map(([k, v]) => (
           <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "10px", background: "var(--color-background-primary)", border: `0.5px solid ${vBg(v)}` }}>
             <span style={{ fontWeight: 500, color: vC(v) }}>{v}</span>
             <span style={{ color: "var(--color-text-secondary)" }}> {k}</span>
@@ -1099,7 +1206,7 @@ export default function App() {
       </div>
 
       {/* Main content */}
-      <div style={{ ...S.shell, paddingTop: "12px", display: "grid", gridTemplateColumns: "minmax(0,1.7fr) minmax(280px,0.8fr)", gap: "10px", alignItems: "start" }}>
+      <div style={{ ...S.shell, paddingTop: "12px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "10px", alignItems: "start" }}>
         <div>
         {phase === "choose" && (
           <div style={{ ...S.panel, padding: "14px" }}>
@@ -1144,6 +1251,16 @@ export default function App() {
                     {v > 0 ? "+" : ""}{v} {k}
                   </span>
                 ) : null)}
+                {Object.entries((chosen.pressureDelta || {}) as StatMap).map(([k, v]) => {
+                  const meta = factionMeta(fid).stats[k] || {};
+                  const n = Number(v);
+                  const goodMove = meta.riskHigh ? n < 0 : n > 0;
+                  return n !== 0 ? (
+                    <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "6px", background: goodMove ? "#EAF3DE" : "#FCEBEB", border: `0.5px solid ${goodMove ? "#97C459" : "#F09595"}`, color: goodMove ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>
+                      {n > 0 ? "+" : ""}{n} {meta.label || k}
+                    </span>
+                  ) : null;
+                })}
                 {Object.entries(chosen.crisisDelta as StatMap).map(([k, v]) => {
                   const n = Number(v);
                   const goodMove = CRISIS_META[k]?.goodHigh ? n > 0 : n < 0;
