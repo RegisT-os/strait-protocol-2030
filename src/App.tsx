@@ -17,6 +17,24 @@ import {
   vBg,
   vC,
 } from "./game/engine";
+import { WAR_OPERATIONS } from "./game/data";
+import {
+  availableOps,
+  abandonOp,
+  createInitialOpsState,
+  resolveOp,
+  startOp,
+  tickOps,
+  OpsState,
+} from "./game/operations";
+import {
+  SAVE_VERSION_WITH_OPERATIONS,
+  buildOperationsRecordText,
+  finalizeOpsForCampaignEndSave,
+  restoreOpsStateFromSave,
+  serializeOpsStateForSave,
+} from "./game/systems";
+import { getRngState, rng as opsRng, setRngState } from "./game/rng";
 
 const CRISIS_META: AnyRecord = {
   globalStability: { label: "Global Stability", goodHigh: true },
@@ -826,6 +844,21 @@ const storageRemove = (k: string) => { if (typeof localStorage !== "undefined") 
 const saveSet = (s?: Set<string>) => Array.from(s || []);
 const restoreSet = (a?: string[]) => new Set(a || []);
 const fmtEntries = (obj: AnyRecord = {}, limit = 8) => Object.entries(obj).slice(0, limit).map(([k, v]) => `${k}: ${v}`).join(", ");
+const warOpsContext = (ops: OpsState, ctx: AnyRecord): OpsState => ({
+  ...ops,
+  mode: "war",
+  day: ctx.day ?? ops.day,
+  act: ctx.act ?? ops.act,
+  campaignLength: 45,
+  factionId: ctx.fid ?? ops.factionId,
+  stats: { ...(ctx.stats || ops.stats || {}) },
+  crisis: { ...(ctx.crisis || ops.crisis || {}) },
+  markets: {},
+  fleets: (ctx.fleets || ops.fleets || []).map((f: AnyRecord, i: number) => ({ ...f, id: f.id || `${ctx.fid || ops.factionId || "fleet"}-${i}`, hostile: !!f.hostile || String(f.name || "").includes("HOSTILE") })),
+  chainTags: (ctx.chainHistory || []).map((c: AnyRecord) => c.tag).filter(Boolean),
+});
+const readyOps = (ops: OpsState) => ops.activeOps.filter(o => o.status === "ready" || o.progress >= o.duration).slice().sort((a, b) => a.startedDay - b.startedDay || a.slotIndex - b.slotIndex);
+const opTitle = (id: string) => WAR_OPERATIONS.find(op => op.id === id)?.title || id;
 const downloadText = (name: string, text: string) => {
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -848,6 +881,7 @@ const warSummaryText = (state: AnyRecord) => {
     `Decision mix: ${fmtEntries(state.decisionCounts, 10) || "none"}`,
     `Fleet outcomes: sea control ${fleet.seaControl}, readiness ${fleet.readiness}, supply ${fleet.supply}, fuel ${fleet.fuel}, threat ${fleet.threat}`,
     `Fleet command points remaining: ${state.fleetCommandPoints}/${FLEET_COMMAND_POINTS_PER_DAY}`,
+    state.warOps ? buildOperationsRecordText(state.warOps) : "OPERATIONS RECORD\nNo operations or projects recorded.",
     "Major crisis chains:",
     chains,
     "Recent turning points:",
@@ -1006,6 +1040,54 @@ function WarRoomSidePanel({ log, timeline }: AnyRecord) {
           <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.5, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function WarOperationsPanel({ ops, onStart, onAbandon }: AnyRecord) {
+  const available = availableOps("war", ops);
+  const active = ops.activeOps || [];
+  const history = ops.opsHistory || [];
+  return (
+    <div style={{ ...S.panel, padding: "11px", display: "grid", gap: "8px" }}>
+      <div>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "3px" }}>Operations</div>
+        <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.45 }}>{active.length} active · {history.length} recorded</div>
+      </div>
+      <div style={{ display: "grid", gap: "5px" }}>
+        {active.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.45 }}>No active operations.</div> : active.map(op => {
+          const def = WAR_OPERATIONS.find(d => d.id === op.id);
+          return (
+            <div key={op.instanceId} style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "7px", background: "var(--color-background-secondary)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: "10px", fontWeight: 800, color: "var(--color-text-primary)" }}>{def?.title || op.id}</div>
+                  <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>{op.status} · {op.progress}/{op.duration} days · risk {def?.risk || "n/a"}</div>
+                </div>
+                <button onClick={() => onAbandon(op.instanceId)} style={{ fontSize: "8px", padding: "3px 6px", borderRadius: "var(--border-radius-md)", border: "0.5px solid #F09595", background: "#FCEBEB", color: "#A32D2D", cursor: "pointer", fontWeight: 800 }}>Abandon</button>
+              </div>
+              <div style={{ height: "3px", borderRadius: "2px", background: "var(--color-background-primary)", marginTop: "6px", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(100, Math.round((op.progress / Math.max(1, op.duration)) * 100))}%`, background: op.status === "ready" ? "#1D9E75" : op.status === "suspended" ? "#BA7517" : "#185FA5" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "7px", display: "grid", gap: "5px" }}>
+        {available.slice(0, 10).map(({ op, available: canStart, reasons }) => (
+          <button key={op.id} onClick={() => canStart && onStart(op.id)} disabled={!canStart}
+            title={reasons.join(" ")}
+            style={{ textAlign: "left", padding: "7px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)", background: canStart ? "var(--color-background-primary)" : "var(--color-background-secondary)", color: canStart ? "var(--color-text-primary)" : "var(--color-text-tertiary)", cursor: canStart ? "pointer" : "not-allowed", fontFamily: "var(--font-sans)" }}>
+            <div style={{ fontSize: "10px", fontWeight: 800 }}>{canStart ? "+ " : ""}{op.title}</div>
+            <div style={{ fontSize: "8px", lineHeight: 1.35 }}>{canStart ? `${op.durationDays} days · risk ${op.risk}` : reasons[0]}</div>
+          </button>
+        ))}
+      </div>
+      {history.length > 0 && (
+        <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "7px", display: "grid", gap: "3px" }}>
+          {history.slice(-3).reverse().map((h, i) => <div key={`${h.instanceId || h.id}-${i}`} style={{ fontSize: "9px", color: "var(--color-text-secondary)", lineHeight: 1.35 }}>D{h.day} · {h.title} — {h.outcome}</div>)}
+        </div>
+      )}
     </div>
   );
 }
@@ -1457,6 +1539,7 @@ export default function App() {
   const [fleetOrdersToday, setFleetOrdersToday] = useState<AnyRecord>({});
   const [usedChainEvents, setUsedChainEvents] = useState<Set<string>>(new Set());
   const [chainHistory, setChainHistory] = useState<any[]>([]);
+  const [warOps, setWarOps] = useState<OpsState>(() => createInitialOpsState("war"));
   const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
   const [lifeProfile, setLifeProfile] = useState<any>(null);
   const [lifeStats, setLifeStats] = useState<StatMap>({});
@@ -1473,18 +1556,21 @@ export default function App() {
 
   const startGame = useCallback((f) => {
     const q = buildQ(f);
-    setFid(f); setStats(factionInitialStats(f, { ...FACTIONS[f].startStats })); setQueue(q); setQi(0);
+    const initialStats = factionInitialStats(f, { ...FACTIONS[f].startStats });
+    const initialFleets = normalizeFleets(f, FACTIONS[f].fleets);
+    setFid(f); setStats(initialStats); setQueue(q); setQi(0);
     setDay(1); setAct(1); setTurn(0); setPhase("choose"); setChosen(null); setSudden(null);
     setUsedSudden(new Set()); setStrikes(0); setEnding(null);
     setOil(145); setRecession(22); setNukeAlert(1); setTaiwanFuel(61);
     setCrisis({ ...DEFAULT_CRISIS });
     setWarLog([]); setTimeline([]); setDecisionCounts(emptyDecisionCounts()); setUsedFactionEvents(new Set());
-    setFleetAssets(normalizeFleets(f, FACTIONS[f].fleets));
+    setFleetAssets(initialFleets);
     setUsedFleetEvents(new Set());
     setFleetCommandPoints(FLEET_COMMAND_POINTS_PER_DAY);
     setFleetOrdersToday({});
     setUsedChainEvents(new Set());
     setChainHistory([]);
+    setWarOps(warOpsContext(createInitialOpsState("war"), { day: 1, act: 1, fid: f, stats: initialStats, crisis: { ...DEFAULT_CRISIS }, fleets: initialFleets, chainHistory: [] }));
     setScreen("game");
   }, []);
 
@@ -1504,30 +1590,35 @@ export default function App() {
   const saveCampaign = useCallback(() => {
     const isLife = screen === "lifeGame" || screen === "lifeEnding" || screen === "lifeSetup";
     const isWar = screen === "game" || screen === "ending";
+    const syncedWarOps = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
     const payload = {
-      version: 2,
+      version: isWar ? SAVE_VERSION_WITH_OPERATIONS : 2,
       mode: isLife ? "life" : isWar ? "war" : "menu",
       savedAt: new Date().toISOString(),
       screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden: saveSet(usedSudden), strikes, ending,
       oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents: saveSet(usedFactionEvents),
       fleetAssets, usedFleetEvents: saveSet(usedFleetEvents), fleetCommandPoints, fleetOrdersToday, usedChainEvents: saveSet(usedChainEvents), chainHistory,
+      warOps: isWar ? serializeOpsStateForSave(syncedWarOps) : undefined,
+      opsRngState: isWar ? getRngState() : undefined,
       lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding,
     };
     storageSet(SAVE_KEY, JSON.stringify(payload));
     setSaveAvailable(true); setSaveMessage(`Saved ${payload.mode} campaign.`);
-  }, [screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
+  }, [screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, warOps, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
 
   const loadCampaign = useCallback(() => {
     const raw = storageGet(SAVE_KEY);
     if (!raw) { setSaveMessage("No saved campaign found."); setSaveAvailable(false); return; }
     try {
       const p = JSON.parse(raw);
+      if (Number.isFinite(Number(p.opsRngState))) setRngState(Number(p.opsRngState));
       setFid(p.fid || null); setStats(p.stats || {}); setQueue(p.queue || []); setQi(p.qi || 0); setDay(p.day || 1); setAct(p.act || 1); setTurn(p.turn || 0); setPhase(p.phase || "choose"); setChosen(p.chosen || null); setSudden(p.sudden || null);
       setUsedSudden(restoreSet(p.usedSudden)); setStrikes(p.strikes || 0); setEnding(p.ending || null);
       setOil(p.oil || 145); setRecession(p.recession || 22); setNukeAlert(p.nukeAlert || 1); setTaiwanFuel(p.taiwanFuel || 61); setCrisis(p.crisis || { ...DEFAULT_CRISIS });
       setWarLog(p.warLog || []); setTimeline(p.timeline || []); setDecisionCounts(p.decisionCounts || emptyDecisionCounts()); setUsedFactionEvents(restoreSet(p.usedFactionEvents));
       setFleetAssets(p.fleetAssets || []); setUsedFleetEvents(restoreSet(p.usedFleetEvents)); setFleetCommandPoints(p.fleetCommandPoints ?? FLEET_COMMAND_POINTS_PER_DAY); setFleetOrdersToday(p.fleetOrdersToday || {});
       setUsedChainEvents(restoreSet(p.usedChainEvents)); setChainHistory(p.chainHistory || []);
+      setWarOps(restoreOpsStateFromSave({ ...(p.warOps || {}), day: p.day || 1, act: p.act || 1, factionId: p.fid || null, stats: p.stats || {}, crisis: p.crisis || { ...DEFAULT_CRISIS }, fleets: p.fleetAssets || [], chainHistory: p.chainHistory || [] }, "war"));
       setLifeDraft(p.lifeDraft || lifeDraft); setLifeProfile(p.lifeProfile || null); setLifeStats(p.lifeStats || {}); setLifeMarkets(p.lifeMarkets || {}); setLifeDay(p.lifeDay || 1); setLifeEvent(p.lifeEvent || null); setLifeLog(p.lifeLog || []); setLifeStrategyCounts(p.lifeStrategyCounts || {}); setLifeEnding(p.lifeEnding || null);
       setScreen(p.screen === "lifeSetup" ? "lifeSetup" : p.mode === "life" ? (p.screen === "lifeEnding" ? "lifeEnding" : "lifeGame") : p.screen === "ending" ? "ending" : "game");
       setSaveAvailable(true); setSaveMessage(`Loaded ${p.mode || "saved"} campaign.`);
@@ -1543,10 +1634,10 @@ export default function App() {
 
   const exportSummary = useCallback(() => {
     const isLife = screen === "lifeGame" || screen === "lifeEnding";
-    const state = { screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts };
+    const state = { screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, warOps: warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory }), lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts };
     downloadText(`strait-protocol-${isLife ? "life" : "war"}-summary.txt`, isLife ? lifeSummaryText(state) : warSummaryText(state));
     setSaveMessage("Campaign summary exported.");
-  }, [screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
+  }, [screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, warOps, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
 
   const restartActive = useCallback(() => {
     if ((screen === "game" || screen === "ending") && fid) { startGame(fid); setSaveMessage("War Room campaign restarted."); return; }
@@ -1555,14 +1646,59 @@ export default function App() {
     }
   }, [screen, fid, startGame, lifeProfile]);
 
+  const handleStartWarOp = useCallback((opId: string) => {
+    const synced = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+    const targetId = opId === "OP-03" ? synced.fleets?.find(f => !f.hostile && f.sup < 20)?.id : undefined;
+    const result = startOp(synced, opId, { targetId });
+    if (!result.ok) { setSaveMessage(result.reasons[0] || "Operation could not start."); return; }
+    setWarOps(result.state);
+    setStats(result.state.stats);
+    setCrisis(result.state.crisis);
+    setWarLog(l => [...l, `D${day} · Operation started: ${opTitle(opId)}.`].slice(-16));
+    setSaveMessage(`Started ${opTitle(opId)}.`);
+  }, [warOps, day, act, fid, stats, crisis, fleetAssets, chainHistory]);
+
+  const handleAbandonWarOp = useCallback((activeOpId: string) => {
+    const synced = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+    const before = synced.activeOps.length;
+    const next = abandonOp(synced, activeOpId);
+    setWarOps(next);
+    if (next.activeOps.length < before) {
+      setWarLog(l => [...l, `D${day} · Operation abandoned.`].slice(-16));
+      setSaveMessage("Operation abandoned.");
+    }
+  }, [warOps, day, act, fid, stats, crisis, fleetAssets, chainHistory]);
+
+  const handleResolveWarOp = useCallback(() => {
+    const synced = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+    const nextReady = readyOps(synced)[0];
+    if (!nextReady) { setPhase("choose"); return; }
+    const result = resolveOp(synced, nextReady.instanceId, opsRng);
+    if (!result.ok || !result.entry) { setSaveMessage(result.reason || "Operation could not resolve."); return; }
+    setWarOps(result.state);
+    setStats(result.state.stats);
+    setCrisis(result.state.crisis);
+    setOil(Math.round(92 + (result.state.crisis.oilShock || 0) * 1.35));
+    setRecession(Math.max(recession, Math.round((result.state.crisis.financialContagion || 0) * 0.8)));
+    setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil((result.state.crisis.nuclearRisk || 0) / 22))));
+    setWarLog(l => [...l, `D${day} · Operation resolved: ${result.entry.title} — ${result.entry.outcome}.`].slice(-16));
+    setTimeline(t => [...t, { day, act, title: "Operation Resolved", body: `${result.entry.title} — ${result.entry.outcome}` }].slice(-10));
+    setSaveMessage(`Resolved ${result.entry.title}: ${result.entry.outcome}.`);
+    setPhase(readyOps(result.state).length ? "opResolve" : "choose");
+  }, [warOps, day, act, fid, stats, crisis, fleetAssets, chainHistory, recession, nukeAlert]);
+
   const pickChoice = useCallback((c, sc) => {
     const crisisDelta = crisisImpact(c);
-    const nextCrisis = applyCrisis(crisis, crisisDelta);
+    let nextCrisis = applyCrisis(crisis, crisisDelta);
     const pressureDelta = factionPressureImpact(fid, c, nextCrisis);
-    const ns = apE(apE(stats, c.e), pressureDelta);
+    let ns = apE(apE(stats, c.e), pressureDelta);
     const nt = turn + 1;
     const nd = Math.min(day + rnd(2, 4), 45);
     const na = Math.min(Math.ceil(nt / 7), 6);
+    const elapsedDays = nd - day;
+    const tickedOps = tickOps(warOpsContext(warOps, { day, act, fid, stats: ns, crisis: nextCrisis, fleets: fleetAssets, chainHistory }), elapsedDays, opsRng);
+    ns = tickedOps.stats;
+    nextCrisis = tickedOps.crisis;
     if (c.strike) { setStrikes(s => s + 1); setNukeAlert(n => Math.min(5, n + 1)); }
     if ((c.e.economy || 0) < -10) setRecession(r => Math.min(100, r + 4));
     if ((c.e.fuel || 0) < -5) setOil(o => Math.min(250, o + rnd(5, 15)));
@@ -1572,6 +1708,7 @@ export default function App() {
     const point = turningPointFor(day, act, sc, c, crisisDelta);
     setFleetCommandPoints(FLEET_COMMAND_POINTS_PER_DAY);
     setFleetOrdersToday({});
+    setWarOps({ ...tickedOps, act: na });
     setCrisis(nextCrisis);
     setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
     setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
@@ -1598,7 +1735,7 @@ export default function App() {
       if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden(se); }
     }
     setPhase("result");
-  }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, usedChainEvents, chainHistory, decisionCounts, fleetAssets, recession, nukeAlert]);
+  }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, usedChainEvents, chainHistory, decisionCounts, fleetAssets, recession, nukeAlert, warOps]);
 
   const handleFleetAction = useCallback((idx: number, action: string) => {
     const fl = fleetAssets[idx];
@@ -1634,14 +1771,17 @@ export default function App() {
 
   const nextTurn = useCallback(() => {
     let ns = stats;
+    let nc = crisis;
     if (sudden) {
       ns = apE(stats, sudden.e);
-      const nextCrisis = applyCrisis(crisis, sudden.crisis || SUDDEN_CRISIS_EFFECTS[sudden.id] || {});
-      setStats(ns); setCrisis(nextCrisis); setSudden(null);
-      setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
-      setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
-      setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+      nc = applyCrisis(crisis, sudden.crisis || SUDDEN_CRISIS_EFFECTS[sudden.id] || {});
+      setStats(ns); setCrisis(nc); setSudden(null);
+      setOil(Math.round(92 + nc.oilShock * 1.35));
+      setRecession(Math.max(recession, Math.round(nc.financialContagion * 0.8)));
+      setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nc.nuclearRisk / 22))));
     }
+    const syncedOps = warOpsContext(warOps, { day, act, fid, stats: ns, crisis: nc, fleets: fleetAssets, chainHistory });
+    if (readyOps(syncedOps).length) { setWarOps(syncedOps); setPhase("opResolve"); return; }
     const fleetEvent = fleetTriggeredEvent(fid, fleetAssets, usedFleetEvents);
     if (!sudden && fleetEvent) {
       setUsedFleetEvents(u => new Set([...u, fleetEvent.id]));
@@ -1649,10 +1789,12 @@ export default function App() {
     }
     const ni = qi + 1;
     if (turn >= 42 || day >= 45 || ni >= queue.length) {
-      setEnding(getEnding(fid, ns, { crisis, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets, chains: chainHistory })); setScreen("ending"); return;
+      const finalOps = finalizeOpsForCampaignEndSave(syncedOps, opsRng);
+      setWarOps(finalOps);
+      setEnding(getEnding(fid, ns, { crisis: nc, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets, chains: chainHistory })); setScreen("ending"); return;
     }
     setQi(ni); setPhase("choose");
-  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes, fleetAssets, usedFleetEvents, chainHistory]);
+  }, [stats, crisis, sudden, qi, turn, day, act, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes, fleetAssets, usedFleetEvents, chainHistory, warOps]);
 
   const pickLifeChoice = useCallback((choice) => {
     if (!lifeProfile || !lifeEvent) return;
@@ -1684,6 +1826,8 @@ export default function App() {
 
   const nukeColors = ["#1D9E75", "#BA7517", "#BA7517", "#E24B4A", "#A32D2D"];
   const fleetOps = fleetSummary(fleetAssets);
+  const displayWarOps = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+  const resolvingOp = readyOps(displayWarOps)[0];
 
   return (
     <div style={S.root}>
@@ -1766,6 +1910,21 @@ export default function App() {
       {/* Main content */}
       <div style={{ ...S.shell, paddingTop: "12px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "10px", alignItems: "start" }}>
         <div>
+        {phase === "opResolve" && resolvingOp && (
+          <div style={{ ...S.panel, padding: "14px" }}>
+            <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Operation Resolution</div>
+            <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px", lineHeight: 1.35 }}>{opTitle(resolvingOp.id)}</div>
+            <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.65, marginBottom: "10px" }}>This operation has completed its timeline and must resolve before the next crisis card.</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "10px" }}>
+              <span style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "999px", background: "#E6F1FB", color: "#185FA5", border: "0.5px solid #85B7EB" }}>{resolvingOp.progress}/{resolvingOp.duration} days</span>
+              <span style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "999px", background: "#FAEEDA", color: "#854F0B", border: "0.5px solid #EF9F27" }}>risk penalty {resolvingOp.riskPenalty}</span>
+            </div>
+            <button onClick={handleResolveWarOp}
+              style={{ width: "100%", padding: "10px", border: `1px solid ${F.bd}`, borderRadius: "var(--border-radius-md)", cursor: "pointer", background: "var(--color-background-primary)", fontSize: "11px", fontWeight: 500, color: F.color, letterSpacing: "0.04em", fontFamily: "var(--font-sans)" }}>
+              Resolve Operation
+            </button>
+          </div>
+        )}
         {phase === "choose" && (
           <div style={{ ...S.panel, padding: "14px" }}>
             <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Active Crisis Card</div>
@@ -1865,7 +2024,10 @@ export default function App() {
           </div>
         )}
         </div>
-        <WarRoomSidePanel log={warLog} timeline={timeline} />
+        <div style={{ display: "grid", gap: "8px" }}>
+          <WarOperationsPanel ops={displayWarOps} onStart={handleStartWarOp} onAbandon={handleAbandonWarOp} />
+          <WarRoomSidePanel log={warLog} timeline={timeline} />
+        </div>
       </div>
     </div>
   );
