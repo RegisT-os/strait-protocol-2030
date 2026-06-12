@@ -256,6 +256,47 @@ const fleetEndingNote = (fid: string, fleets: AnyRecord[] = []) => {
   if (s.threat >= 68) return "Fleet risk stayed high enough that every final move carried escalation danger.";
   return "Fleet logistics remained serviceable but never decisive.";
 };
+const hasChain = (history: AnyRecord[] = [], id: string) => history.some(e => e.id === id);
+const chainEventOptions = (ctx: AnyRecord) => {
+  const { fid, stats: st, crisis: cr, fleets, act, day, counts, lastChoice, history } = ctx;
+  const f = fleetSummary(fleets);
+  const cat = categoryOf(lastChoice || {});
+  const lowCyberPrep = Number(counts.Cyber || 0) + Number(counts.Intelligence || 0) < 2;
+  return [
+    { id: "cyber_bank", t: "Cyberattack Hits Banking System", d: "A coordinated intrusion freezes interbank settlement across three Asian financial centers. Crisis liquidity desks switch to manual procedures.", e: { economy: -8, credibility: -4, chest: -5 }, crisis: { cyberDisruption: 12, financialContagion: 8, mediaPanic: 6 }, score: cr.cyberDisruption + cr.financialContagion / 2 + (lowCyberPrep ? 18 : -10), follow: "market_crash" },
+    { id: "oil_insurance", t: "Oil Tanker Insurance Spikes", d: "War-risk underwriters triple premiums for hulls entering the Western Pacific. Fuel contracts reprice before diplomats finish their statements.", e: { fuel: -7, economy: -4, supply: -4 }, crisis: { oilShock: 9, shippingInsuranceCost: 12, foodInflation: 4 }, score: cr.shippingInsuranceCost + cr.oilShock / 2 + (f.seaControl < 45 ? 15 : -8), follow: "fleet_resupply_fail" },
+    { id: "semis_halt", t: "Semiconductor Exports Halt", d: "A major foundry network pauses priority export lanes. Auto, AI, and defense supply planners all start calling at once.", e: { economy: -9, supply: -8, chest: -4 }, crisis: { semiconductorSupply: -14, financialContagion: 7, mediaPanic: 5 }, score: (100 - cr.semiconductorSupply) + cr.escalationLevel / 2 + (cat === "Military" ? 8 : 0) },
+    { id: "un_corridor_blocked", t: "UN Humanitarian Corridor Blocked", d: "A notification corridor is denied at the last checkpoint. Relief cargo sits visible, filmed, and useless.", e: { global: -7, credibility: -5, supply: -3 }, crisis: { humanitarianDamage: 10, refugeePressure: 8, publicTrust: -4 }, score: cr.humanitarianDamage + cr.escalationLevel / 2 + (fid === "un" ? 18 : 0) + ((st.humanitarianAccess || st.hum || 0) > 68 ? -20 : 0), follow: "refugee_surge" },
+    { id: "asean_communique_fails", t: "ASEAN Communique Fails", d: "The summit closes without a joint communique. Separate capitals begin briefing separate patrons.", e: { unity: -8, credibility: -5, economy: -3 }, crisis: { allianceCohesion: -6, mediaPanic: 5, shippingInsuranceCost: 3 }, score: (fid === "asean" ? 25 : 5) + (60 - (st.aseanUnity || st.unity || 55)) + (st.chinaDependency || 0) / 3 + (st.usDependency || 0) / 3 },
+    { id: "carrier_collision", t: "US Carrier Collision Scare", d: "A destroyer and civilian hull pass inside the safety envelope of a US carrier group. No collision, but everyone saw how close it was.", e: { military: -4, credibility: -3, supply: -2 }, crisis: { escalationLevel: 7, mediaPanic: 6, shippingInsuranceCost: 5 }, score: (fid === "us_dem" || fid === "us_rep" ? 20 : 4) + f.threat + (f.fuel < 45 ? 10 : 0) - (f.readiness > 72 ? 14 : 0) },
+    { id: "china_fuel_shortage", t: "Chinese Fuel Shortage", d: "Forward PLAN units begin quiet rationing. The blockade clock is now competing with the tanker clock.", e: { fuel: -8, supply: -6, military: -5, pla: -4 }, crisis: { oilShock: 5, shippingInsuranceCost: 5 }, score: (fid === "china" ? 22 : 4) + (55 - f.fuel) + (st.blockade || 0) / 3 },
+    { id: "nk_missile_launch", t: "North Korean Missile Launch", d: "A missile rises over the Sea of Japan. The launch is calibrated, but the alerts are not.", e: { military: 4, credibility: -5, food: -4 }, crisis: { nuclearRisk: 11, escalationLevel: 8, mediaPanic: 7 }, score: (fid === "north_korea" ? 22 : 8) + (st.missileLadder || 0) + cr.nuclearRisk / 2 - ((st.foodReserve || st.food || 0) > 60 ? 12 : 0), follow: "accidental_contact" },
+    { id: "russian_arctic_shadowed", t: "Russian Arctic Convoy Shadowed", d: "An unidentified submarine shadows the Arctic convoy route. Moscow can profit, pause, or provoke.", e: { economy: 3, credibility: -3, supply: -3 }, crisis: { escalationLevel: 5, oilShock: 4, shippingInsuranceCost: 4 }, score: (fid === "russia" ? 24 : 5) + (st.energyLeverage || 0) / 2 + f.threat / 2 },
+    { id: "market_crash", t: "Financial Market Crash", d: "Circuit breakers trip across Asia, then Europe. The crisis has become a balance-sheet event.", e: { economy: -14, chest: -8, domestic: -6 }, crisis: { financialContagion: 15, mediaPanic: 9, publicTrust: -6 }, score: cr.financialContagion + (hasChain(history, "cyber_bank") ? 35 : 0) + (Number(counts.Finance || 0) >= 2 ? -20 : 0) },
+    { id: "refugee_surge", t: "Refugee Surge", d: "Ports and airports report families moving before governments can publish policy. Humanitarian planning becomes domestic politics.", e: { global: -6, domestic: -5, supply: -4 }, crisis: { refugeePressure: 14, humanitarianDamage: 8, foodInflation: 5 }, score: cr.refugeePressure + cr.humanitarianDamage / 2 + (hasChain(history, "un_corridor_blocked") ? 30 : 0) },
+    { id: "protest_wave", t: "Protest Wave", d: "Screens fill with crowds: anti-war, anti-shortage, anti-government, sometimes all three in the same square.", e: { domestic: -9, stability: -6, credibility: -4 }, crisis: { publicTrust: -8, mediaPanic: 10, warWeariness: 7 }, score: cr.mediaPanic + cr.warWeariness + (st.protestRisk || st.coupRisk || 0) / 2 - ((st.approvalFloor || st.kimLoyalty || 50) > 65 ? 12 : 0) },
+    { id: "backchannel_ceasefire", t: "Backchannel Ceasefire Offer", d: "A neutral channel offers a face-saving pause. It is not peace, but it can stop the next bad hour.", e: { global: 7, credibility: 4, military: -2 }, crisis: { escalationLevel: -8, nuclearRisk: -5, humanitarianDamage: -4 }, score: day > 12 ? Number(counts.Diplomacy || 0) * 18 + cr.escalationLevel / 2 + (cr.nuclearRisk > 45 ? 15 : 0) : 0 },
+    { id: "fleet_resupply_fail", t: "Fleet Resupply Failure", d: "A critical lift package misses its window. Readiness loss spreads faster than the staff brief admits.", e: { supply: -10, military: -7, credibility: -4 }, crisis: { shippingInsuranceCost: 8, escalationLevel: 4 }, score: (45 - f.supply) + cr.shippingInsuranceCost / 2 + (hasChain(history, "oil_insurance") ? 25 : 0) },
+    { id: "hub_sabotage", t: "Logistics Hub Sabotage", d: "A port fire, false manifests, and cut fiber lines hit the same logistics hub within one hour.", e: { supply: -9, military: -4, economy: -4 }, crisis: { cyberDisruption: 8, shippingInsuranceCost: 8, mediaPanic: 4 }, score: cr.cyberDisruption + (100 - f.readiness) / 2 + (Number(counts.Logistics || 0) >= 2 ? -18 : 0) },
+    { id: "media_spiral", t: "Media Panic Spiral", d: "A clipped video outruns the correction. Three governments deny three different rumors and make all of them worse.", e: { credibility: -7, domestic: -5, global: -4 }, crisis: { mediaPanic: 14, publicTrust: -8, nuclearRisk: 3 }, score: cr.mediaPanic + (cat === "Military" ? 8 : 0) + (Number(counts.Intelligence || 0) >= 2 ? -15 : 0) },
+    { id: "accidental_contact", t: "Accidental Military Contact", d: "Two armed units touch the same airspace and both report defensive maneuvering. The replay is ambiguous enough to be dangerous.", e: { military: -3, credibility: -4, global: -7 }, crisis: { escalationLevel: 12, nuclearRisk: 6, mediaPanic: 7 }, score: cr.escalationLevel + f.threat / 2 + (hasChain(history, "nk_missile_launch") ? 20 : 0) + (cat === "Military" ? 8 : 0) },
+  ].map(e => ({ ...e, score: Math.round(e.score || 0) }));
+};
+const pickChainEvent = (ctx: AnyRecord) => {
+  const options = (chainEventOptions(ctx) as AnyRecord[])
+    .filter(e => !ctx.used.has(e.id) && e.score >= 58)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  if (!options.length) return null;
+  const total = options.reduce((a, e) => a + e.score, 0);
+  let roll = Math.random() * total;
+  return options.find(e => (roll -= e.score) <= 0) || options[0];
+};
+const chainEndingNote = (history: AnyRecord[] = []) => {
+  if (!history.length) return "";
+  const names = history.slice(-3).map(e => e.t).join(", ");
+  return `Major crisis chains shaped the campaign: ${names}.`;
+};
 
 const FACTIONS = {
   us_dem: { id: "us_dem", flag: "🇺🇸", name: "United States", sub: "Democrat Administration", color: "#185FA5", bd: "#85B7EB", bg: "#E6F1FB", tagline: "Multilateral juggler — coalition or bust", pressure: "Progressive caucus · Allied burden disputes · UN credibility · Recession fear", traits: ["Multilateral", "Sanctions-first", "Domestic division", "Coalition"], intel: "NSC emergency session. PLAN blockaded Taiwan's eastern ports — Day 1. Progressive caucus demands UN vote before any military posture. JCS says delay = weakness. Treasury: 90-day conflict = 68% recession probability.", startStats: { stability: 68, military: 78, economy: 72, credibility: 80, global: 75, domestic: 62, coalition: 70, resolve: 65, fuel: 85, supply: 80, chest: 75, proxy: 60 }, fleets: [{ name: "USS Gerald R. Ford CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "West Pacific", threat: "High", eta: 0, sup: 28, note: "On station. Strike-ready." }, { name: "USS Ronald Reagan CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "South China Sea", threat: "High", eta: 0, sup: 22, note: "Resupply needed Day 22." }, { name: "USS Nimitz CSG", type: "Carrier Strike Group", u: 9, status: "standby", front: "Pearl Harbor", threat: "None", eta: 7, sup: 45, note: "7-day transit to Taiwan Strait." }, { name: "USS Truman CSG", type: "Carrier Strike Group", u: 9, status: "transit", front: "Indian Ocean", threat: "Medium", eta: 12, sup: 40, note: "12 days from theater." }, { name: "SSN Wolf Pack Alpha", type: "Submarine Squadron", u: 6, status: "covert", front: "Taiwan Strait", threat: "Critical", eta: 0, sup: 60, note: "Undetected. PLAN unaware." }, { name: "Makin Island ARG", type: "Amphibious Ready Group", u: 5, status: "standby", front: "Okinawa", threat: "Low", eta: 2, sup: 35, note: "2,200 Marines aboard." }, { name: "B-52H Strategic Wing", type: "Strategic Bombers", u: 12, status: "on-station", front: "Andersen AFB Guam", threat: "High", eta: 0, sup: 30, note: "Armed. 4hr sortie to Strait." }] },
@@ -540,6 +581,7 @@ function getEnding(fid, st, context: AnyRecord = {}) {
     crisis.publicTrust < 40 ? "Public trust was badly damaged by the endgame." : "",
     factionEndingNote(fid, st),
     fleetEndingNote(fid, context.fleets || []),
+    chainEndingNote(context.chains || []),
   ].filter(Boolean).join(" ");
   return { ...base, body: notes ? `${base.body} ${notes}` : base.body, context };
 }
@@ -1128,6 +1170,8 @@ export default function App() {
   const [usedFactionEvents, setUsedFactionEvents] = useState<Set<string>>(new Set());
   const [fleetAssets, setFleetAssets] = useState<any[]>([]);
   const [usedFleetEvents, setUsedFleetEvents] = useState<Set<string>>(new Set());
+  const [usedChainEvents, setUsedChainEvents] = useState<Set<string>>(new Set());
+  const [chainHistory, setChainHistory] = useState<any[]>([]);
   const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
   const [lifeProfile, setLifeProfile] = useState<any>(null);
   const [lifeStats, setLifeStats] = useState<StatMap>({});
@@ -1149,6 +1193,8 @@ export default function App() {
     setWarLog([]); setTimeline([]); setDecisionCounts(emptyDecisionCounts()); setUsedFactionEvents(new Set());
     setFleetAssets(normalizeFleets(f, FACTIONS[f].fleets));
     setUsedFleetEvents(new Set());
+    setUsedChainEvents(new Set());
+    setChainHistory([]);
     setScreen("game");
   }, []);
 
@@ -1183,21 +1229,29 @@ export default function App() {
     setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
     setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
     setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
-    setDecisionCounts(d => ({ ...d, [category]: (d[category] || 0) + 1 }));
+    const nextCounts = { ...decisionCounts, [category]: (decisionCounts[category] || 0) + 1 };
+    setDecisionCounts(nextCounts);
     setWarLog(l => [...l, entry].slice(-16));
     setTimeline(t => [...t, point].slice(-10));
     setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc, crisisDelta, pressureDelta, category });
     const factionEvent = factionTriggeredEvent(fid, ns, nextCrisis, usedFactionEvents);
+    const chainEvent = pickChainEvent({ fid, stats: ns, crisis: nextCrisis, fleets: fleetAssets, act: na, day: nd, counts: nextCounts, lastChoice: c, used: usedChainEvents, history: chainHistory });
     const suddenChance = 0.18 + Math.max(nextCrisis.escalationLevel, nextCrisis.financialContagion, nextCrisis.mediaPanic, nextCrisis.cyberDisruption, 0) / 280;
     if (factionEvent) {
       setUsedFactionEvents(u => new Set([...u, factionEvent.id]));
       setSudden(factionEvent);
+    } else if (chainEvent) {
+      setUsedChainEvents(u => new Set([...u, chainEvent.id]));
+      setChainHistory(h => [...h, { id: chainEvent.id, t: chainEvent.t, day: nd, act: na, score: chainEvent.score }].slice(-12));
+      setWarLog(l => [...l, `D${nd} · Crisis Chain: ${chainEvent.t}. ${chainEvent.d}`].slice(-16));
+      setTimeline(t => [...t, { day: nd, act: na, title: "Crisis Chain", body: `${chainEvent.t} · score ${chainEvent.score}` }].slice(-10));
+      setSudden(chainEvent);
     } else if (Math.random() < suddenChance) {
       const se = pickSuddenEvent(usedSudden, nextCrisis);
       if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden(se); }
     }
     setPhase("result");
-  }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, recession, nukeAlert]);
+  }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, usedChainEvents, chainHistory, decisionCounts, fleetAssets, recession, nukeAlert]);
 
   const handleFleetAction = useCallback((idx: number, action: string) => {
     const fl = fleetAssets[idx];
@@ -1235,10 +1289,10 @@ export default function App() {
     }
     const ni = qi + 1;
     if (turn >= 42 || day >= 45 || ni >= queue.length) {
-      setEnding(getEnding(fid, ns, { crisis, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets })); setScreen("ending"); return;
+      setEnding(getEnding(fid, ns, { crisis, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets, chains: chainHistory })); setScreen("ending"); return;
     }
     setQi(ni); setPhase("choose");
-  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes, fleetAssets, usedFleetEvents]);
+  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes, fleetAssets, usedFleetEvents, chainHistory]);
 
   const pickLifeChoice = useCallback((choice) => {
     if (!lifeProfile || !lifeEvent) return;
@@ -1421,7 +1475,7 @@ export default function App() {
                       {v > 0 ? "+" : ""}{v} {k}
                     </span>
                   ) : null)}
-                  {Object.entries((SUDDEN_CRISIS_EFFECTS[sudden.id] || {}) as StatMap).map(([k, v]) => {
+                  {Object.entries((sudden.crisis || SUDDEN_CRISIS_EFFECTS[sudden.id] || {}) as StatMap).map(([k, v]) => {
                     const n = Number(v);
                     const goodMove = CRISIS_META[k]?.goodHigh ? n > 0 : n < 0;
                     return n !== 0 ? (
