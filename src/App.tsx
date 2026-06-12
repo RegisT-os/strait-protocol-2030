@@ -13,10 +13,66 @@ const TCOL = { MIL: { bg: "#FCEBEB", tx: "#A32D2D", bd: "#F09595" }, DIP: { bg: 
 const tc = tag => TCOL[tag] || TCOL.DIP;
 const vC = v => v >= 65 ? "#1D9E75" : v >= 40 ? "#BA7517" : "#E24B4A";
 const vBg = v => v >= 65 ? "#EAF3DE" : v >= 40 ? "#FAEEDA" : "#FCEBEB";
+const riskC = v => v < 35 ? "#1D9E75" : v < 65 ? "#BA7517" : "#E24B4A";
+const riskBg = v => v < 35 ? "#EAF3DE" : v < 65 ? "#FAEEDA" : "#FCEBEB";
 const thrC = t => ({ High: "#A32D2D", Critical: "#A32D2D", Active: "#A32D2D", Imminent: "#712B13", Strategic: "#3C3489", Medium: "#854F0B", Low: "#3B6D11", None: "#888", "N/A": "#888" }[t] || "#888");
 const thrBg = t => ({ High: "#FCEBEB", Critical: "#FCEBEB", Active: "#FCEBEB", Imminent: "#FAECE7", Strategic: "#EEEDFE", Medium: "#FAEEDA", Low: "#EAF3DE", None: "#f5f5f5", "N/A": "#f5f5f5" }[t] || "#f5f5f5");
 const stC = s => ({ deployed: "#A32D2D", blockade: "#A32D2D", active: "#1D9E75", "combat alert": "#A32D2D", "on standby": "#854F0B", "forward deployed": "#A32D2D", staging: "#854F0B", transit: "#854F0B", standby: "#888", covert: "#3C3489", patrol: "#3C3489", harbor: "#1D9E75", alert: "#854F0B", approaching: "#712B13", "on-station": "#1D9E75", defensive: "#888", secured: "#3C3489", partial: "#854F0B", inactive: "#888" }[s] || "#888");
 const supC = d => d >= 999 ? "#1D9E75" : d < 15 ? "#A32D2D" : d < 30 ? "#BA7517" : "#1D9E75";
+
+const CRISIS_META: AnyRecord = {
+  globalStability: { label: "Global Stability", goodHigh: true },
+  escalationLevel: { label: "Escalation Level" },
+  financialContagion: { label: "Financial Contagion" },
+  oilShock: { label: "Oil Shock" },
+  foodInflation: { label: "Food Inflation" },
+  semiconductorSupply: { label: "Semiconductor Supply", goodHigh: true },
+  shippingInsuranceCost: { label: "Shipping Insurance Cost" },
+  cyberDisruption: { label: "Cyber Disruption" },
+  refugeePressure: { label: "Refugee Pressure" },
+  mediaPanic: { label: "Media Panic" },
+  allianceCohesion: { label: "Alliance Cohesion", goodHigh: true },
+  publicTrust: { label: "Public Trust", goodHigh: true },
+  warWeariness: { label: "War Weariness" },
+  humanitarianDamage: { label: "Humanitarian Damage" },
+  nuclearRisk: { label: "Nuclear Risk" },
+};
+const DEFAULT_CRISIS: StatMap = { globalStability: 62, escalationLevel: 22, financialContagion: 24, oilShock: 32, foodInflation: 28, semiconductorSupply: 72, shippingInsuranceCost: 34, cyberDisruption: 18, refugeePressure: 16, mediaPanic: 25, allianceCohesion: 58, publicTrust: 54, warWeariness: 12, humanitarianDamage: 14, nuclearRisk: 12 };
+const crisisC = (k, v) => CRISIS_META[k]?.goodHigh ? vC(v) : riskC(v);
+const crisisBg = (k, v) => CRISIS_META[k]?.goodHigh ? vBg(v) : riskBg(v);
+const applyCrisis = (s: StatMap, e: StatMap = {}) => {
+  const n = { ...s };
+  Object.entries(e).forEach(([k, v]) => { if (n[k] !== undefined) n[k] = cl(n[k] + Number(v)); });
+  return n;
+};
+const crisisImpact = (c: AnyRecord): StatMap => {
+  const e = c.e || {};
+  const badGlobal = Math.max(0, -(e.global || 0));
+  const badEconomy = Math.max(0, -(e.economy || 0));
+  const badCred = Math.max(0, -(e.credibility || 0));
+  const badDomestic = Math.max(0, -(e.domestic || 0));
+  const badSupply = Math.max(0, -(e.supply || 0));
+  const badFuel = Math.max(0, -(e.fuel || 0));
+  const badFood = Math.max(0, -(e.food || 0));
+  const tag = c.tag;
+  return {
+    globalStability: Math.round((e.global || 0) / 2 + (e.stability || 0) / 2 - (c.strike ? 5 : 0)),
+    escalationLevel: (c.strike ? 14 : 0) + (tag === "MIL" ? 4 : 0) + (tag === "STR" ? 8 : 0) - (tag === "DIP" ? 3 : 0),
+    financialContagion: Math.round(badEconomy / 2 + Math.max(0, -(e.chest || 0)) / 3 + (tag === "FIN" && c.type !== "good" ? 4 : 0)),
+    oilShock: Math.round(badFuel + (tag === "MIL" || tag === "STR" ? 3 : 0)),
+    foodInflation: Math.round(badFood + badSupply / 2 + (tag === "HUM" && c.type === "good" ? -4 : 0)),
+    semiconductorSupply: Math.round(-badEconomy / 2 - (tag === "INT" && c.type !== "good" ? 3 : 0)),
+    shippingInsuranceCost: Math.round((tag === "LOG" && c.type !== "good" ? 5 : 0) + badSupply / 2 + (c.strike ? 4 : 0)),
+    cyberDisruption: (tag === "INT" ? (c.type === "good" ? -2 : 5) : 0) + (c.strike ? 2 : 0),
+    refugeePressure: Math.round((tag === "MIL" || tag === "STR" ? 4 : 0) + badGlobal / 2 + (c.strike ? 5 : 0)),
+    mediaPanic: Math.round(badCred / 2 + badDomestic / 2 + badGlobal / 2 + (c.strike ? 4 : 0)),
+    allianceCohesion: Math.round((e.coalition || 0) / 2 + (e.global || 0) / 4 + (e.credibility || 0) / 4),
+    publicTrust: Math.round((e.domestic || 0) / 2 + (e.credibility || 0) / 3 - (c.strike ? 3 : 0)),
+    warWeariness: (c.strike ? 6 : 0) + (tag === "MIL" ? 3 : 0) - (tag === "DIP" ? 2 : 0),
+    humanitarianDamage: Math.round((c.strike ? 7 : 0) + badGlobal / 2 + badFood / 2 + (tag === "HUM" && c.type === "good" ? -6 : 0)),
+    nuclearRisk: (c.strike ? 7 : 0) + (tag === "STR" ? 5 : 0) + (tag === "DIP" ? -2 : 0),
+  };
+};
 
 const FACTIONS = {
   us_dem: { id: "us_dem", flag: "🇺🇸", name: "United States", sub: "Democrat Administration", color: "#185FA5", bd: "#85B7EB", bg: "#E6F1FB", tagline: "Multilateral juggler — coalition or bust", pressure: "Progressive caucus · Allied burden disputes · UN credibility · Recession fear", traits: ["Multilateral", "Sanctions-first", "Domestic division", "Coalition"], intel: "NSC emergency session. PLAN blockaded Taiwan's eastern ports — Day 1. Progressive caucus demands UN vote before any military posture. JCS says delay = weakness. Treasury: 90-day conflict = 68% recession probability.", startStats: { stability: 68, military: 78, economy: 72, credibility: 80, global: 75, domestic: 62, coalition: 70, resolve: 65, fuel: 85, supply: 80, chest: 75, proxy: 60 }, fleets: [{ name: "USS Gerald R. Ford CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "West Pacific", threat: "High", eta: 0, sup: 28, note: "On station. Strike-ready." }, { name: "USS Ronald Reagan CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "South China Sea", threat: "High", eta: 0, sup: 22, note: "Resupply needed Day 22." }, { name: "USS Nimitz CSG", type: "Carrier Strike Group", u: 9, status: "standby", front: "Pearl Harbor", threat: "None", eta: 7, sup: 45, note: "7-day transit to Taiwan Strait." }, { name: "USS Truman CSG", type: "Carrier Strike Group", u: 9, status: "transit", front: "Indian Ocean", threat: "Medium", eta: 12, sup: 40, note: "12 days from theater." }, { name: "SSN Wolf Pack Alpha", type: "Submarine Squadron", u: 6, status: "covert", front: "Taiwan Strait", threat: "Critical", eta: 0, sup: 60, note: "Undetected. PLAN unaware." }, { name: "Makin Island ARG", type: "Amphibious Ready Group", u: 5, status: "standby", front: "Okinawa", threat: "Low", eta: 2, sup: 35, note: "2,200 Marines aboard." }, { name: "B-52H Strategic Wing", type: "Strategic Bombers", u: 12, status: "on-station", front: "Andersen AFB Guam", threat: "High", eta: 0, sup: 30, note: "Armed. 4hr sortie to Strait." }] },
@@ -141,6 +197,39 @@ const SUDDEN = [
   { id: "russia_escalate", icon: "⚡", t: "Russia Escalates — Kaliningrad ISKANDER Exercise", d: "Russian ISKANDER missiles begin exercises pointed at Warsaw. NATO goes to DEFCON equivalent.", e: { global: -10, credibility: -8 } },
   { id: "oil_spike", icon: "🛢️", t: "Oil Reaches $200/barrel — Global Recession Imminent", d: "Brent crude hits $200/bbl. IMF declares global recession has begun. Emergency G20 called.", e: { economy: -20, fuel: -10, chest: -8, stability: -10 } },
 ];
+
+const SUDDEN_CRISIS_EFFECTS: AnyRecord = {
+  typhoon: { shippingInsuranceCost: 8, foodInflation: 5, humanitarianDamage: 3 },
+  iran_hormuz: { oilShock: 16, shippingInsuranceCost: 6, financialContagion: 4 },
+  market: { financialContagion: 16, mediaPanic: 8, publicTrust: -5 },
+  nk_test: { escalationLevel: 8, nuclearRisk: 12, mediaPanic: 6 },
+  defect: { cyberDisruption: 3, mediaPanic: -3, allianceCohesion: 3 },
+  tsmc: { semiconductorSupply: -18, financialContagion: 8, mediaPanic: 5 },
+  resupply_fail: { shippingInsuranceCost: 10, escalationLevel: 5, warWeariness: 4 },
+  deepfake: { cyberDisruption: 16, mediaPanic: 14, publicTrust: -8, nuclearRisk: 4 },
+  japan_elect: { allianceCohesion: -12, globalStability: -5, mediaPanic: 5 },
+  supply_interdict: { escalationLevel: 6, shippingInsuranceCost: 7, oilShock: 4 },
+  russia_escalate: { escalationLevel: 10, nuclearRisk: 7, allianceCohesion: -5 },
+  oil_spike: { oilShock: 18, financialContagion: 10, foodInflation: 6, globalStability: -6 },
+};
+
+function suddenEligible(e, crisis: StatMap) {
+  if (e.id === "oil_spike") return crisis.oilShock >= 45 || crisis.financialContagion >= 50;
+  if (e.id === "market") return crisis.financialContagion >= 38 || crisis.mediaPanic >= 45;
+  if (e.id === "tsmc") return crisis.semiconductorSupply <= 65 || crisis.cyberDisruption >= 42;
+  if (e.id === "deepfake") return crisis.cyberDisruption >= 35 || crisis.mediaPanic >= 50;
+  if (e.id === "nk_test" || e.id === "russia_escalate") return crisis.escalationLevel >= 38 || crisis.nuclearRisk >= 30;
+  if (e.id === "resupply_fail" || e.id === "supply_interdict") return crisis.shippingInsuranceCost >= 40 || crisis.escalationLevel >= 35;
+  if (e.id === "iran_hormuz") return crisis.oilShock >= 36 || crisis.escalationLevel >= 45;
+  return true;
+}
+
+function pickSuddenEvent(used: Set<string>, crisis: StatMap) {
+  const available = SUDDEN.filter(e => !used.has(e.id));
+  const reactive = available.filter(e => suddenEligible(e, crisis));
+  const pool = reactive.length ? reactive : available;
+  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+}
 
 const LIFE_SPAWNS: AnyRecord = {
   singapore: { id: "singapore", name: "Singapore", note: "Orderly, expensive, heavily watched.", stats: { health: 76, morale: 68, money: 58, supplies: 62, family: 64, reputation: 58, risk: 28, debt: 22 }, markets: { food: 112, fuel: 138, rent: 125, medicine: 118, usd: 104, jobs: 72 } },
@@ -334,6 +423,25 @@ function StatBar({ label, value }: AnyRecord) {
       <div style={{ height: "2px", borderRadius: "1px", background: "var(--color-border-tertiary)", marginTop: "2px" }}>
         <div style={{ height: "2px", borderRadius: "1px", width: `${value}%`, background: vC(value), transition: "width 0.3s" }} />
       </div>
+    </div>
+  );
+}
+
+function CrisisTile({ id, value }: AnyRecord) {
+  const meta = CRISIS_META[id] || { label: id };
+  const color = crisisC(id, value);
+  const bg = crisisBg(id, value);
+  const status = meta.goodHigh ? (value >= 65 ? "Strong" : value >= 40 ? "Fragile" : "Weak") : (value < 35 ? "Low" : value < 65 ? "Elevated" : "Severe");
+  return (
+    <div style={{ background: bg, border: `0.5px solid ${color}`, borderRadius: "var(--border-radius-md)", padding: "6px 7px", minHeight: "54px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "baseline", marginBottom: "3px" }}>
+        <div style={{ fontSize: "8px", color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", lineHeight: 1.2 }}>{meta.label}</div>
+        <div style={{ fontSize: "14px", fontWeight: 800, color }}>{value}</div>
+      </div>
+      <div style={{ height: "3px", borderRadius: "999px", background: "rgba(255,255,255,0.65)", overflow: "hidden", marginBottom: "3px" }}>
+        <div style={{ width: `${value}%`, height: "3px", borderRadius: "999px", background: color }} />
+      </div>
+      <div style={{ fontSize: "8px", color, fontWeight: 700 }}>{status}</div>
     </div>
   );
 }
@@ -653,6 +761,7 @@ export default function App() {
   const [recession, setRecession] = useState(22);
   const [nukeAlert, setNukeAlert] = useState(1);
   const [taiwanFuel, setTaiwanFuel] = useState(61);
+  const [crisis, setCrisis] = useState<StatMap>({ ...DEFAULT_CRISIS });
   const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
   const [lifeProfile, setLifeProfile] = useState<any>(null);
   const [lifeStats, setLifeStats] = useState<StatMap>({});
@@ -670,6 +779,7 @@ export default function App() {
     setDay(1); setAct(1); setTurn(0); setPhase("choose"); setChosen(null); setSudden(null);
     setUsedSudden(new Set()); setStrikes(0); setEnding(null);
     setOil(145); setRecession(22); setNukeAlert(1); setTaiwanFuel(61);
+    setCrisis({ ...DEFAULT_CRISIS });
     setScreen("game");
   }, []);
 
@@ -687,6 +797,8 @@ export default function App() {
 
   const pickChoice = useCallback((c, sc) => {
     const ns = apE(stats, c.e);
+    const crisisDelta = crisisImpact(c);
+    const nextCrisis = applyCrisis(crisis, crisisDelta);
     const nt = turn + 1;
     const nd = Math.min(day + rnd(2, 4), 45);
     const na = Math.min(Math.ceil(nt / 7), 6);
@@ -694,27 +806,35 @@ export default function App() {
     if ((c.e.economy || 0) < -10) setRecession(r => Math.min(100, r + 4));
     if ((c.e.fuel || 0) < -5) setOil(o => Math.min(250, o + rnd(5, 15)));
     setTaiwanFuel(t => Math.max(0, t - rnd(1, 4)));
-    setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc });
-    if (Math.random() < 0.27) {
-      const av = SUDDEN.filter(e => !usedSudden.has(e.id));
-      if (av.length) {
-        const se = av[Math.floor(Math.random() * av.length)];
-        setUsedSudden(u => new Set([...u, se.id]));
-        setSudden(se);
-      }
+    setCrisis(nextCrisis);
+    setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
+    setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
+    setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+    setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc, crisisDelta });
+    const suddenChance = 0.18 + Math.max(nextCrisis.escalationLevel, nextCrisis.financialContagion, nextCrisis.mediaPanic, nextCrisis.cyberDisruption, 0) / 280;
+    if (Math.random() < suddenChance) {
+      const se = pickSuddenEvent(usedSudden, nextCrisis);
+      if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden(se); }
     }
     setPhase("result");
-  }, [stats, turn, day, usedSudden]);
+  }, [stats, crisis, turn, day, usedSudden, recession, nukeAlert]);
 
   const nextTurn = useCallback(() => {
     let ns = stats;
-    if (sudden) { ns = apE(stats, sudden.e); setStats(ns); setSudden(null); }
+    if (sudden) {
+      ns = apE(stats, sudden.e);
+      const nextCrisis = applyCrisis(crisis, SUDDEN_CRISIS_EFFECTS[sudden.id] || {});
+      setStats(ns); setCrisis(nextCrisis); setSudden(null);
+      setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
+      setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
+      setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+    }
     const ni = qi + 1;
     if (turn >= 42 || day >= 45 || ni >= queue.length) {
       setEnding(getEnding(fid, ns)); setScreen("ending"); return;
     }
     setQi(ni); setPhase("choose");
-  }, [stats, sudden, qi, turn, day, queue, fid]);
+  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert]);
 
   const pickLifeChoice = useCallback((choice) => {
     if (!lifeProfile || !lifeEvent) return;
@@ -783,6 +903,16 @@ export default function App() {
         ))}
       </div>
 
+      {/* Global crisis state */}
+      <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(244,247,248,0.82)" }}>
+        <div style={{ maxWidth: "1120px", margin: "0 auto" }}>
+          <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Global Crisis Board</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(132px,1fr))", gap: "5px" }}>
+            {Object.entries(CRISIS_META).map(([id]) => <CrisisTile key={id} id={id} value={crisis[id]} />)}
+          </div>
+        </div>
+      </div>
+
       {/* Fleet status */}
       <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.5)" }}>
         <div style={{ maxWidth: "1120px", margin: "0 auto" }}>
@@ -841,6 +971,15 @@ export default function App() {
                     {v > 0 ? "+" : ""}{v} {k}
                   </span>
                 ) : null)}
+                {Object.entries(chosen.crisisDelta as StatMap).map(([k, v]) => {
+                  const n = Number(v);
+                  const goodMove = CRISIS_META[k]?.goodHigh ? n > 0 : n < 0;
+                  return n !== 0 ? (
+                    <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "6px", background: goodMove ? "#EAF3DE" : "#FCEBEB", border: `0.5px solid ${goodMove ? "#97C459" : "#F09595"}`, color: goodMove ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>
+                      {n > 0 ? "+" : ""}{n} {CRISIS_META[k]?.label || k}
+                    </span>
+                  ) : null;
+                })}
               </div>
             </div>
 
@@ -854,6 +993,15 @@ export default function App() {
                       {v > 0 ? "+" : ""}{v} {k}
                     </span>
                   ) : null)}
+                  {Object.entries((SUDDEN_CRISIS_EFFECTS[sudden.id] || {}) as StatMap).map(([k, v]) => {
+                    const n = Number(v);
+                    const goodMove = CRISIS_META[k]?.goodHigh ? n > 0 : n < 0;
+                    return n !== 0 ? (
+                      <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "6px", background: goodMove ? "#EAF3DE" : "#FCEBEB", border: `0.5px solid ${goodMove ? "#97C459" : "#F09595"}`, color: goodMove ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>
+                        {n > 0 ? "+" : ""}{n} {CRISIS_META[k]?.label || k}
+                      </span>
+                    ) : null;
+                  })}
                 </div>
               </div>
             )}
