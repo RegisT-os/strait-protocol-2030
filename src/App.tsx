@@ -239,6 +239,16 @@ const applyFleetPatch = (fl: AnyRecord, e: AnyRecord) => ({
   sup: fl.sup >= 999 ? 999 : Math.max(0, Math.round((fl.sup || 0) + (e.sup || 0))),
   readiness: cl((fl.readiness ?? 55) + (e.readiness || 0)),
 });
+const FLEET_COMMAND_POINTS_PER_DAY = 2;
+const fleetActionCost = (action: string) => action === "Strike Ready" ? 2 : 1;
+const fleetStatusBlockReason = (fl: AnyRecord, action: string) => {
+  const status = String(fl.status || "").toLowerCase();
+  const name = String(fl.name || "").toLowerCase();
+  if (name.includes("hostile") || status === "approaching") return "Action unavailable due to fleet status";
+  if (status === "inactive" && !["Hold", "Resupply"].includes(action)) return "Action unavailable due to fleet status";
+  if (status === "harbor" && ["Interdict", "Strike Ready"].includes(action)) return "Action unavailable due to fleet status";
+  return "";
+};
 const fleetTriggeredEvent = (fid: string, fleets: AnyRecord[], used: Set<string>) => {
   const s = fleetSummary(fleets);
   const list = [
@@ -887,7 +897,7 @@ function FleetCard({ fl }: AnyRecord) {
 }
 
 // ─── SCREENS ─────────────────────────────────────────────────────────────────
-function FleetOpsCard({ fl, onAction }: AnyRecord) {
+function FleetOpsCard({ fl, onAction, commandPoints = FLEET_COMMAND_POINTS_PER_DAY, orderedToday = false }: AnyRecord) {
   const isCrit = fl.threat === "Critical" || fl.threat === "Imminent" || fl.status === "approaching";
   const actions = ["Deploy", "Hold", "Resupply", "Escort", "Shadow", "Interdict", "Retreat", "Strike Ready"];
   return (
@@ -910,12 +920,17 @@ function FleetOpsCard({ fl, onAction }: AnyRecord) {
         <span style={{ fontSize: "8px", color: vC(fl.readiness), fontWeight: 600 }}>Ready {fl.readiness}%</span>
       </div>
       {fl.note && <div style={{ fontSize: "8px", color: "var(--color-text-tertiary)", marginTop: "2px", fontStyle: "italic", lineHeight: 1.3 }}>{fl.note}</div>}
+      {orderedToday && <div style={{ fontSize: "8px", color: "#854F0B", marginTop: "3px", fontWeight: 650 }}>Orders issued today</div>}
       <div style={{ display: "flex", gap: "3px", flexWrap: "wrap", marginTop: "5px" }}>
-        {actions.map(a => (
-          <button key={a} onClick={() => onAction(a)} style={{ fontSize: "8px", padding: "2px 5px", borderRadius: "5px", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)", cursor: "pointer", fontFamily: "var(--font-sans)" }}>
-            {a}
+        {actions.map(a => {
+          const cost = fleetActionCost(a);
+          const blocked = orderedToday || cost > commandPoints || !!fleetStatusBlockReason(fl, a);
+          return (
+          <button key={a} disabled={blocked} title={blocked ? orderedToday ? "This fleet already received orders today" : cost > commandPoints ? "No Fleet Command Points remaining" : "Action unavailable due to fleet status" : `${cost} Fleet Command Point${cost === 1 ? "" : "s"}`} onClick={() => onAction(a)} style={{ fontSize: "8px", padding: "2px 5px", borderRadius: "5px", border: `0.5px solid ${blocked ? "var(--color-border-tertiary)" : "#185FA5"}`, background: blocked ? "var(--color-background-secondary)" : "var(--color-background-primary)", color: blocked ? "var(--color-text-tertiary)" : "var(--color-text-secondary)", cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.58 : 1, fontFamily: "var(--font-sans)" }}>
+            {a}{cost > 1 ? ` ${cost}` : ""}
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1248,6 +1263,8 @@ export default function App() {
   const [usedFactionEvents, setUsedFactionEvents] = useState<Set<string>>(new Set());
   const [fleetAssets, setFleetAssets] = useState<any[]>([]);
   const [usedFleetEvents, setUsedFleetEvents] = useState<Set<string>>(new Set());
+  const [fleetCommandPoints, setFleetCommandPoints] = useState(FLEET_COMMAND_POINTS_PER_DAY);
+  const [fleetOrdersToday, setFleetOrdersToday] = useState<AnyRecord>({});
   const [usedChainEvents, setUsedChainEvents] = useState<Set<string>>(new Set());
   const [chainHistory, setChainHistory] = useState<any[]>([]);
   const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
@@ -1271,6 +1288,8 @@ export default function App() {
     setWarLog([]); setTimeline([]); setDecisionCounts(emptyDecisionCounts()); setUsedFactionEvents(new Set());
     setFleetAssets(normalizeFleets(f, FACTIONS[f].fleets));
     setUsedFleetEvents(new Set());
+    setFleetCommandPoints(FLEET_COMMAND_POINTS_PER_DAY);
+    setFleetOrdersToday({});
     setUsedChainEvents(new Set());
     setChainHistory([]);
     setScreen("game");
@@ -1303,6 +1322,8 @@ export default function App() {
     const category = categoryOf(c);
     const entry = logEntryFor(day, act, F, sc, c);
     const point = turningPointFor(day, act, sc, c, crisisDelta);
+    setFleetCommandPoints(FLEET_COMMAND_POINTS_PER_DAY);
+    setFleetOrdersToday({});
     setCrisis(nextCrisis);
     setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
     setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
@@ -1334,12 +1355,25 @@ export default function App() {
   const handleFleetAction = useCallback((idx: number, action: string) => {
     const fl = fleetAssets[idx];
     if (!fl || !fid) return;
+    const fleetKey = fl.id || `${fid}-${idx}`;
+    const cost = fleetActionCost(action);
+    const blockReason = fleetOrdersToday[fleetKey]
+      ? "This fleet already received orders today"
+      : cost > fleetCommandPoints
+        ? "No Fleet Command Points remaining"
+        : fleetStatusBlockReason(fl, action);
+    if (blockReason) {
+      setWarLog(l => [...l, `D${day} - Fleet order blocked: ${blockReason}. ${fl.name} could not execute ${action}.`].slice(-16));
+      return;
+    }
     const effect = fleetActionEffect(fid, fl, action);
     const nextFleet = applyFleetPatch(fl, effect);
     const nextFleets = fleetAssets.map((f, i) => i === idx ? nextFleet : f);
     const nextStats = apE(stats, effect.stats || {});
     const nextCrisis = applyCrisis(crisis, effect.crisis || {});
     const summary = fleetSummary(nextFleets);
+    setFleetCommandPoints(p => Math.max(0, p - cost));
+    setFleetOrdersToday(o => ({ ...o, [fleetKey]: action }));
     setFleetAssets(nextFleets);
     setStats(nextStats);
     setCrisis(nextCrisis);
@@ -1348,7 +1382,7 @@ export default function App() {
     setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
     setWarLog(l => [...l, `D${day} · Fleet: ${action} ordered for ${fl.name}. Mission now "${nextFleet.mission}". Sea control ${summary.seaControl}.`].slice(-16));
     setTimeline(t => [...t, { day, act, title: "Fleet Action", body: `${action}: ${fl.name} · readiness ${nextFleet.readiness}, fuel ${nextFleet.fuel}` }].slice(-10));
-  }, [fleetAssets, fid, stats, crisis, recession, nukeAlert, day, act]);
+  }, [fleetAssets, fid, stats, crisis, recession, nukeAlert, day, act, fleetCommandPoints, fleetOrdersToday]);
 
   const nextTurn = useCallback(() => {
     let ns = stats;
@@ -1457,6 +1491,7 @@ export default function App() {
       <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.5)" }}>
         <div style={{ maxWidth: "1120px", margin: "0 auto" }}>
         <div style={{ fontSize: "9px", fontWeight: 500, color: "var(--color-text-secondary)", marginBottom: "5px", textTransform: "uppercase", letterSpacing: "0.05em" }}>⚓ Fleet Status · Transit ETA · Supply Days</div>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: fleetCommandPoints > 0 ? "#185FA5" : "#A32D2D", background: fleetCommandPoints > 0 ? "#E6F1FB" : "#FCEBEB", border: `0.5px solid ${fleetCommandPoints > 0 ? "#85B7EB" : "#F09595"}`, borderRadius: "999px", padding: "3px 8px", display: "inline-block", marginBottom: "6px" }}>Fleet Command Points: {fleetCommandPoints}/{FLEET_COMMAND_POINTS_PER_DAY}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: "5px", marginBottom: "6px" }}>
           <PressureMetric id="seaControl" value={fleetOps.seaControl} meta={{ label: "Sea Control" }} />
           <PressureMetric id="fleetReadiness" value={fleetOps.readiness} meta={{ label: "Fleet Readiness" }} />
@@ -1464,7 +1499,7 @@ export default function App() {
           <PressureMetric id="fleetThreat" value={fleetOps.threat} meta={{ label: "Fleet Threat", riskHigh: true }} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(270px,1fr))", gap: "5px" }}>
-          {fleetAssets.map((fl, i) => <FleetOpsCard key={fl.id || i} fl={fl} onAction={(a) => handleFleetAction(i, a)} />)}
+          {fleetAssets.map((fl, i) => <FleetOpsCard key={fl.id || i} fl={fl} commandPoints={fleetCommandPoints} orderedToday={!!fleetOrdersToday[fl.id || `${fid}-${i}`]} onAction={(a) => handleFleetAction(i, a)} />)}
         </div>
         </div>
       </div>
