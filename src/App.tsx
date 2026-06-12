@@ -21,6 +21,7 @@ import { LIFE_PROJECTS, WAR_OPERATIONS } from "./game/data";
 import {
   availableOps,
   abandonOp,
+  chooseInterstitial,
   createInitialOpsState,
   resolveOp,
   startOp,
@@ -29,7 +30,9 @@ import {
 } from "./game/operations";
 import {
   SAVE_VERSION_WITH_OPERATIONS,
+  buildOperationsEndingPanelData,
   buildOperationsRecordText,
+  buildIncompleteOpsText,
   finalizeOpsForCampaignEndSave,
   restoreOpsStateFromSave,
   serializeOpsStateForSave,
@@ -322,6 +325,57 @@ const chainEndingNote = (history: AnyRecord[] = []) => {
   if (!history.length) return "";
   const names = history.slice(-3).map(e => e.t).join(", ");
   return `Major crisis chains shaped the campaign: ${names}.`;
+};
+const OPS_RESOLVED_OUTCOMES = new Set(["success", "partial"]);
+const GRADE_VALUE: AnyRecord = { "F": 0, "D": 1, "C-": 2, "C": 3, "C+": 4, "B-": 5, "B": 6, "B+": 7, "A-": 8, "A": 9, "A+": 10 };
+const outcomeCount = (ops: OpsState | undefined, id: string, outcomes = OPS_RESOLVED_OUTCOMES) => (ops?.opsHistory || []).filter(entry => entry.id === id && outcomes.has(entry.outcome)).length;
+const hasResolvedOp = (ops: OpsState | undefined, id: string) => outcomeCount(ops, id) > 0;
+const gradeFloor = (grade: string, floor: string) => (GRADE_VALUE[grade] ?? 0) < (GRADE_VALUE[floor] ?? 0) ? floor : grade;
+const zeroOutOfSupply = (fleets: AnyRecord[] = []) => fleets.every(fleet => Number(fleet.sup ?? 1) > 0);
+const operationEndingNotes = (fid: string | null, st: StatMap, context: AnyRecord = {}) => {
+  const ops = context.warOps as OpsState | undefined;
+  if (!ops) return { title: "", gradeFloor: "", notes: [] as string[] };
+  const crisis = context.crisis || {};
+  const notes: string[] = [];
+  let title = "";
+  let floor = "";
+  if (hasResolvedOp(ops, "OP-01") && hasResolvedOp(ops, "OP-10") && Number(crisis.escalationLevel || 0) <= 42) {
+    title = "Quiet Peace";
+    floor = "A-";
+    notes.push("The backchannel and ceasefire framework held while escalation stayed low enough for a quiet peace.");
+  }
+  if (hasResolvedOp(ops, "OP-05")) notes.push("The humanitarian corridor held; relief access became part of the settlement record.");
+  if (["us_rep", "china"].includes(String(fid)) && outcomeCount(ops, "OP-03", new Set(["success"])) >= 2 && zeroOutOfSupply(context.fleets || [])) {
+    title = title || "Logistics Won This";
+    floor = gradeFloor(floor || "F", "A-");
+    notes.push("Logistics won this: repeated carrier resupply kept the fleet picture from breaking.");
+  }
+  if (outcomeCount(ops, "OP-08", new Set(["success"])) > 0 && Number(st.chest || 0) >= 30) {
+    if (!title && String(context.baseTitle || "").includes("Bankruptcy")) title = "Solvent at the Brink";
+    floor = gradeFloor(floor || "F", "B+");
+    notes.push("Emergency market stabilization kept the campaign solvent at the brink.");
+  }
+  return { title, gradeFloor: floor, notes };
+};
+const projectEndingNotes = (ops: OpsState | undefined, stats: StatMap) => {
+  const notes: string[] = [];
+  let title = "";
+  let grade = "";
+  const pj10Failures = outcomeCount(ops, "PJ-10", new Set(["failure"]));
+  if (pj10Failures >= 2) {
+    return {
+      title: "Burned",
+      grade: "F",
+      notes: ["Two risky side-hustle failures hard-unlocked the Burned ending."],
+    };
+  }
+  if (hasResolvedOp(ops, "PJ-04") && hasResolvedOp(ops, "PJ-09") && Number(stats.emergencyPreparedness || 0) >= 70 && Number(stats.familyStability || 0) >= 55) {
+    title = "Fortress Household";
+    grade = "A";
+    notes.push("Stockpiles plus backup power turned the household into a working fortress.");
+  }
+  if (hasResolvedOp(ops, "PJ-10")) notes.push("Risky side work changed the household balance sheet, but left a visible risk trail.");
+  return { title, grade, notes };
 };
 
 const FACTIONS = {
@@ -630,7 +684,16 @@ const ENDINGS = {
 
 function getEnding(fid, st, context: AnyRecord = {}) {
   const list = ENDINGS[fid] || [];
-  const base = list.find(e => e.cond(st)) || list[list.length - 1] || { grade: "B", title: "Crisis Concluded", body: "The situation resolved. History will judge the choices made." };
+  let base = list.find(e => e.cond(st)) || list[list.length - 1] || { grade: "B", title: "Crisis Concluded", body: "The situation resolved. History will judge the choices made." };
+  const opHooks = operationEndingNotes(fid, st, { ...context, baseTitle: base.title });
+  if (fid === "un" && base.title === "The Room Still Matters" && !hasResolvedOp(context.warOps, "OP-05")) {
+    base = { grade: "B+", title: "Humanitarian Framework", body: "The room stayed open, but the final settlement lacked a completed corridor. Institutions need receipts before history calls it their finest hour." };
+  }
+  if (base.title === "Bankruptcy of Power" && outcomeCount(context.warOps, "OP-08", new Set(["success"])) > 0 && Number(st.chest || 0) >= 30) {
+    base = { grade: "B+", title: "Solvent at the Brink", body: "The fiscal cliff arrived, but emergency market stabilization kept the state solvent enough to finish the crisis standing." };
+  }
+  const finalTitle = opHooks.title || base.title;
+  const finalGrade = opHooks.gradeFloor ? gradeFloor(base.grade, opHooks.gradeFloor) : base.grade;
   const counts = context.decisionCounts || {};
   const crisis = context.crisis || {};
   const topCategory = Object.entries(counts).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
@@ -644,8 +707,9 @@ function getEnding(fid, st, context: AnyRecord = {}) {
     factionEndingNote(fid, st),
     fleetEndingNote(fid, context.fleets || []),
     chainEndingNote(context.chains || []),
+    ...opHooks.notes,
   ].filter(Boolean).join(" ");
-  return { ...base, body: notes ? `${base.body} ${notes}` : base.body, context };
+  return { ...base, title: finalTitle, grade: finalGrade, body: notes ? `${base.body} ${notes}` : base.body, context };
 }
 
 function buildQ(fid) {
@@ -813,15 +877,22 @@ function lifeStrategyNote(counts: AnyRecord = {}) {
 }
 function getLifeEnding(profile, stats, context: AnyRecord = {}) {
   const why = `You ended in ${profile.spawn.name} as a ${profile.role.name}: cash ${stats.cash}, debt ${stats.debt}, stress ${stats.stress}, reputation ${stats.reputation}. ${lifeStrategyNote(context.strategyCounts)}`;
-  if (stats.debt > 105 || (stats.cash < 22 && stats.debt > 78)) return { title: "Debt Collapse", grade: "F", body: `Compounding debt outran income and emergency cash. ${why}` };
-  if (stats.cash > 118 && stats.reputation < 38) return { title: "Black Market King", grade: "B-", body: `You profited from shortages faster than trust could survive it. ${why}` };
-  if (stats.cash > 126) return { title: "Crisis Millionaire", grade: "A-", body: `You converted volatility, income, and cash discipline into a balance sheet. ${why}` };
-  if (stats.health < 34 || stats.stress > 82 || stats.morale < 30) return { title: "Burned-Out Professional", grade: "C-", body: `You kept functioning until the crisis took it out of your body and mind. ${why}` };
-  if (stats.familyStability > 84) return { title: "Family Protector", grade: "A", body: `You did not save the world. You kept your people stable, housed, and supplied. ${why}` };
-  if (profile.philosophy.id === "exit" && stats.migrationReadiness > 72 && stats.cash > 48 && stats.legalRisk < 48) return { title: "Expat Escape", grade: "B+", body: `Documents, money, and timing lined up when the exit window opened. ${why}` };
-  if (stats.reputation > 84) return { title: "Community Pillar", grade: "A", body: `Your network became infrastructure. People survived because you made trust practical. ${why}` };
-  if (stats.careerCapital > 86 && stats.jobSecurity > 62) return { title: "Career Breakthrough During Chaos", grade: "A-", body: `You became visibly useful while institutions were short on calm competence. ${why}` };
-  return { title: "Quiet Survivor", grade: "B", body: `No headlines, no fortune, no collapse. You endured the crisis one careful day at a time. ${why}` };
+  const projectHooks = projectEndingNotes(context.lifeOps, stats);
+  if (projectHooks.title === "Burned") return { title: "Burned", grade: "F", body: `The second side-hustle failure stopped being a setback and became the ending. ${why} ${projectHooks.notes.join(" ")}`, context };
+  let base;
+  if (stats.debt > 105 || (stats.cash < 22 && stats.debt > 78)) base = { title: "Debt Collapse", grade: "F", body: `Compounding debt outran income and emergency cash. ${why}` };
+  else if (stats.cash > 118 && stats.reputation < 38) base = { title: "Black Market King", grade: "B-", body: `You profited from shortages faster than trust could survive it. ${why}` };
+  else if (stats.cash > 126) base = { title: "Crisis Millionaire", grade: "A-", body: `You converted volatility, income, and cash discipline into a balance sheet. ${why}` };
+  else if (stats.health < 34 || stats.stress > 82 || stats.morale < 30) base = { title: "Burned-Out Professional", grade: "C-", body: `You kept functioning until the crisis took it out of your body and mind. ${why}` };
+  else if (stats.familyStability > 84) base = { title: "Family Protector", grade: "A", body: `You did not save the world. You kept your people stable, housed, and supplied. ${why}` };
+  else if (profile.philosophy.id === "exit" && stats.migrationReadiness > 72 && stats.cash > 48 && stats.legalRisk < 48) base = { title: "Expat Escape", grade: "B+", body: `Documents, money, and timing lined up when the exit window opened. ${why}` };
+  else if (stats.reputation > 84) base = { title: "Community Pillar", grade: "A", body: `Your network became infrastructure. People survived because you made trust practical. ${why}` };
+  else if (stats.careerCapital > 86 && stats.jobSecurity > 62) base = { title: "Career Breakthrough During Chaos", grade: "A-", body: `You became visibly useful while institutions were short on calm competence. ${why}` };
+  else base = { title: "Quiet Survivor", grade: "B", body: `No headlines, no fortune, no collapse. You endured the crisis one careful day at a time. ${why}` };
+  const title = projectHooks.title || base.title;
+  const grade = projectHooks.grade ? gradeFloor(base.grade, projectHooks.grade) : base.grade;
+  const notes = projectHooks.notes.length ? ` ${projectHooks.notes.join(" ")}` : "";
+  return { ...base, title, grade, body: `${base.body}${notes}`, context };
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
@@ -844,6 +915,14 @@ const storageRemove = (k: string) => { if (typeof localStorage !== "undefined") 
 const saveSet = (s?: Set<string>) => Array.from(s || []);
 const restoreSet = (a?: string[]) => new Set(a || []);
 const fmtEntries = (obj: AnyRecord = {}, limit = 8) => Object.entries(obj).slice(0, limit).map(([k, v]) => `${k}: ${v}`).join(", ");
+const opsRecordText = (ops: OpsState | undefined, title = "OPERATIONS RECORD") => {
+  if (!ops) return `${title}\nNo operations or projects recorded.`;
+  const record = buildOperationsRecordText(ops).replace("OPERATIONS RECORD", title);
+  const incomplete = buildIncompleteOpsText(ops);
+  return incomplete.includes("No incomplete operations or projects.")
+    ? record
+    : `${record}\n\n${incomplete.replace("INCOMPLETE AT END", `${title.replace(" RECORD", "")} INCOMPLETE AT END`)}`;
+};
 const warOpsContext = (ops: OpsState, ctx: AnyRecord): OpsState => ({
   ...ops,
   mode: "war",
@@ -912,7 +991,7 @@ const warSummaryText = (state: AnyRecord) => {
     `Decision mix: ${fmtEntries(state.decisionCounts, 10) || "none"}`,
     `Fleet outcomes: sea control ${fleet.seaControl}, readiness ${fleet.readiness}, supply ${fleet.supply}, fuel ${fleet.fuel}, threat ${fleet.threat}`,
     `Fleet command points remaining: ${state.fleetCommandPoints}/${FLEET_COMMAND_POINTS_PER_DAY}`,
-    state.warOps ? buildOperationsRecordText(state.warOps) : "OPERATIONS RECORD\nNo operations or projects recorded.",
+    opsRecordText(state.warOps, "OPERATIONS RECORD"),
     "Major crisis chains:",
     chains,
     "Recent turning points:",
@@ -931,7 +1010,7 @@ const lifeSummaryText = (state: AnyRecord) => {
     `Personal stats: ${fmtEntries(state.lifeStats, 18)}`,
     `Markets: ${fmtEntries(state.lifeMarkets, 8)}`,
     `Recovery strategy mix: ${fmtEntries(state.lifeStrategyCounts, 8) || "none"}`,
-    state.lifeOps ? buildOperationsRecordText(state.lifeOps) : "OPERATIONS RECORD\nNo operations or projects recorded.",
+    opsRecordText(state.lifeOps, "PROJECTS RECORD"),
     "Recent life log:",
     log,
   ].join("\n");
@@ -1188,6 +1267,28 @@ function CampaignControls({ mode, canLoad, message, onSave, onLoad, onClear, onE
           {btn("Restart", onRestart, false, "danger")}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EndingOpsRecordPanel({ ops, title = "Operations Record" }: AnyRecord) {
+  if (!ops) return null;
+  const data = buildOperationsEndingPanelData(ops);
+  const lines = data.recordLines.length ? data.recordLines.slice(-5).reverse() : ["No operations or projects recorded."];
+  return (
+    <div style={{ ...S.card, padding: "10px", textAlign: "left" }}>
+      <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>{title}</div>
+      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "6px" }}>
+        {Object.entries(data.counts).filter(([, v]) => Number(v) > 0).map(([k, v]) => (
+          <span key={k} style={{ fontSize: "8px", padding: "2px 6px", borderRadius: "999px", background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", color: "var(--color-text-secondary)" }}>{k}: {v as number}</span>
+        ))}
+      </div>
+      {lines.map((line, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}>{line}</div>)}
+      {(data.incompleteLines.length > 0 || data.activeLines.length > 0) && (
+        <div style={{ fontSize: "9px", color: "#854F0B", lineHeight: 1.45, borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "5px" }}>
+          {[...data.incompleteLines, ...data.activeLines].join(" ")}
+        </div>
+      )}
     </div>
   );
 }
@@ -1491,7 +1592,7 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, controls, pr
   );
 }
 
-function LifeEndingScreen({ ending, profile, stats, controls, onRestart, onMenu }: AnyRecord) {
+function LifeEndingScreen({ ending, profile, stats, controls, ops, onRestart, onMenu }: AnyRecord) {
   return (
     <div style={{ ...S.root, padding: "22px 14px", textAlign: "center" }}>
       {controls}
@@ -1509,6 +1610,9 @@ function LifeEndingScreen({ ending, profile, stats, controls, onRestart, onMenu 
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "4px", maxWidth: "520px", margin: "0 auto 16px" }}>
         {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
+      </div>
+      <div style={{ maxWidth: "620px", margin: "0 auto 16px" }}>
+        <EndingOpsRecordPanel ops={ops} title="Projects Record" />
       </div>
       <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap" }}>
         <button onClick={onRestart} style={{ padding: "9px 16px", border: "1px solid #EF9F27", borderRadius: "var(--border-radius-md)", background: "#FAEEDA", color: "#854F0B", cursor: "pointer", fontWeight: 600 }}>New Life Run</button>
@@ -1585,6 +1689,9 @@ function EndingScreen({ F, ending, stats, controls, onRestart }: AnyRecord) {
           <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Fleet Outcome</div>
           <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55 }}>Sea control {fleet.seaControl}. Readiness {fleet.readiness}. Supply {fleet.supply}. Fuel {fleet.fuel}. Threat {fleet.threat}.</div>
         </div>
+      </div>
+      <div style={{ maxWidth: "620px", margin: "0 auto 16px" }}>
+        <EndingOpsRecordPanel ops={ctx.warOps} title="Operations Record" />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "4px", maxWidth: "460px", margin: "0 auto 18px" }}>
         {Object.entries(stats as StatMap).map(([k, v]) => (
@@ -1847,7 +1954,6 @@ export default function App() {
     const point = turningPointFor(day, act, sc, c, crisisDelta);
     setFleetCommandPoints(FLEET_COMMAND_POINTS_PER_DAY);
     setFleetOrdersToday({});
-    setWarOps({ ...tickedOps, act: na });
     setCrisis(nextCrisis);
     setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
     setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
@@ -1857,21 +1963,34 @@ export default function App() {
     setWarLog(l => [...l, entry].slice(-16));
     setTimeline(t => [...t, point].slice(-10));
     setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc, crisisDelta, pressureDelta, category });
-    const factionEvent = factionTriggeredEvent(fid, ns, nextCrisis, usedFactionEvents);
-    const chainEvent = pickChainEvent({ fid, stats: ns, crisis: nextCrisis, fleets: fleetAssets, act: na, day: nd, counts: nextCounts, lastChoice: c, used: usedChainEvents, history: chainHistory });
+    const hasPendingFollowUp = tickedOps.pendingFollowUps.length > 0;
+    const factionEvent = hasPendingFollowUp ? null : factionTriggeredEvent(fid, ns, nextCrisis, usedFactionEvents);
+    const chainEvent = hasPendingFollowUp || factionEvent ? null : pickChainEvent({ fid, stats: ns, crisis: nextCrisis, fleets: fleetAssets, act: na, day: nd, counts: nextCounts, lastChoice: c, used: usedChainEvents, history: chainHistory });
     const suddenChance = 0.18 + Math.max(nextCrisis.escalationLevel, nextCrisis.financialContagion, nextCrisis.mediaPanic, nextCrisis.cyberDisruption, 0) / 280;
-    if (factionEvent) {
+    const suddenCandidate = hasPendingFollowUp || factionEvent || chainEvent || Math.random() >= suddenChance ? null : pickSuddenEvent(usedSudden, nextCrisis);
+    const interstitial = chooseInterstitial(tickedOps, factionEvent || chainEvent, suddenCandidate);
+    setWarOps({ ...interstitial.state, act: na });
+    if (interstitial.kind === "follow-up" && interstitial.event) {
+      const follow = interstitial.event as AnyRecord;
+      setWarLog(l => [...l, `D${nd} - Follow-up: ${follow.title}. ${follow.note}`].slice(-16));
+      setTimeline(t => [...t, { day: nd, act: na, title: "Operation Follow-up", body: `${follow.title} - ${follow.note}` }].slice(-10));
+      setSudden({ id: follow.id, t: follow.title, d: follow.note, e: {}, crisis: {}, icon: "", kindLabel: "Follow-up Event" });
+    } else if (interstitial.kind === "chain" && interstitial.event && factionEvent && (interstitial.event as AnyRecord).id === factionEvent.id) {
+      const delivered = interstitial.event as AnyRecord;
+      setUsedFactionEvents(u => new Set([...u, delivered.id]));
+      setSudden({ ...delivered, kindLabel: "Faction Event" });
+    } else if (factionEvent) {
       setUsedFactionEvents(u => new Set([...u, factionEvent.id]));
-      setSudden(factionEvent);
-    } else if (chainEvent) {
+      setSudden({ ...factionEvent, kindLabel: "Faction Event" });
+    } else if (interstitial.kind === "chain" && interstitial.event && chainEvent) {
       setUsedChainEvents(u => new Set([...u, chainEvent.id]));
       setChainHistory(h => [...h, { id: chainEvent.id, t: chainEvent.t, day: nd, act: na, score: chainEvent.score }].slice(-12));
       setWarLog(l => [...l, `D${nd} · Crisis Chain: ${chainEvent.t}. ${chainEvent.d}`].slice(-16));
       setTimeline(t => [...t, { day: nd, act: na, title: "Crisis Chain", body: `${chainEvent.t} · score ${chainEvent.score}` }].slice(-10));
-      setSudden(chainEvent);
-    } else if (Math.random() < suddenChance) {
-      const se = pickSuddenEvent(usedSudden, nextCrisis);
-      if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden(se); }
+      setSudden({ ...chainEvent, kindLabel: "Crisis Chain" });
+    } else if (interstitial.kind === "sudden" && interstitial.event) {
+      const se = interstitial.event as AnyRecord;
+      if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden({ ...se, kindLabel: "Sudden Event" }); }
     }
     setPhase("result");
   }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, usedChainEvents, chainHistory, decisionCounts, fleetAssets, recession, nukeAlert, warOps]);
@@ -1929,8 +2048,11 @@ export default function App() {
     const ni = qi + 1;
     if (turn >= 42 || day >= 45 || ni >= queue.length) {
       const finalOps = finalizeOpsForCampaignEndSave(syncedOps, opsRng);
+      const finalStats = finalOps.stats;
+      const finalCrisis = finalOps.crisis;
       setWarOps(finalOps);
-      setEnding(getEnding(fid, ns, { crisis: nc, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets, chains: chainHistory })); setScreen("ending"); return;
+      setStats(finalStats); setCrisis(finalCrisis);
+      setEnding(getEnding(fid, finalStats, { crisis: finalCrisis, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets, chains: chainHistory, warOps: finalOps })); setScreen("ending"); return;
     }
     setQi(ni); setPhase("choose");
   }, [stats, crisis, sudden, qi, turn, day, act, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes, fleetAssets, usedFleetEvents, chainHistory, warOps]);
@@ -1948,8 +2070,9 @@ export default function App() {
     const nextStrategies = { ...lifeStrategyCounts, [choice.strategy || "general"]: (lifeStrategyCounts[choice.strategy || "general"] || 0) + 1 };
     setLifeStrategyCounts(nextStrategies);
     if (lifeDay >= lifeProfile.length) {
-      setLifeStats(nextStats); setLifeMarkets(nextMarkets); setLifeLog(nextLog); setLifeOps(tickedOps);
-      setLifeEnding(getLifeEnding(lifeProfile, nextStats, { strategyCounts: nextStrategies })); setScreen("lifeEnding"); return;
+      const finalOps = finalizeOpsForCampaignEndSave(tickedOps, opsRng);
+      setLifeStats(finalOps.stats); setLifeMarkets(finalOps.markets); setLifeLog(nextLog); setLifeOps(finalOps);
+      setLifeEnding(getLifeEnding(lifeProfile, finalOps.stats, { strategyCounts: nextStrategies, lifeOps: finalOps })); setScreen("lifeEnding"); return;
     }
     const nd = lifeDay + 1;
     const nextEvent = buildLifeEvent(nd, lifeProfile, nextStats);
@@ -1962,7 +2085,7 @@ export default function App() {
   if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} canLoad={saveAvailable} saveMessage={saveMessage} onLoad={loadCampaign} onClear={clearSave} /></div>;
   if (screen === "lifeSetup") return <LifeSetupScreen draft={lifeDraft} setDraft={setLifeDraft} onStart={startLife} onBack={() => setScreen("menu")} />;
   if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} controls={activeControls} projects={lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent })} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} onStartProject={handleStartLifeProject} onAbandonProject={handleAbandonLifeProject} onResolveProject={handleResolveLifeProject} />;
-  if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} controls={activeControls} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
+  if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} controls={activeControls} ops={lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent })} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
   if (screen === "faction") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<FactionScreen onPick={startGame} /></div>;
   if (screen === "ending") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<EndingScreen F={F} ending={ending} stats={stats} controls={activeControls} onRestart={() => setScreen("faction")} /></div>;
   if (!F) return null;
@@ -2139,7 +2262,7 @@ export default function App() {
 
             {sudden && (
               <div style={{ background: "#FAEEDA", borderLeft: "3px solid #BA7517", borderRadius: "0 var(--border-radius-md) var(--border-radius-md) 0", padding: "9px 13px", marginBottom: "8px" }}>
-                <div style={{ fontSize: "10px", fontWeight: 500, color: "#854F0B", marginBottom: "2px" }}>{sudden.icon} Sudden Event: {sudden.t}</div>
+                <div style={{ fontSize: "10px", fontWeight: 500, color: "#854F0B", marginBottom: "2px" }}>{sudden.icon} {sudden.kindLabel || "Sudden Event"}: {sudden.t}</div>
                 <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", marginBottom: "5px" }}>{sudden.d}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
                   {Object.entries(sudden.e as StatMap).map(([k, v]) => v !== 0 ? (

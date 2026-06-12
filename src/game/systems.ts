@@ -9,6 +9,7 @@ import {
   finalizeIncompleteOps,
   restoreOpsState,
   serializeOpsState,
+  tickOps,
 } from "./operations";
 import { rng as seededRng } from "./rng";
 
@@ -128,18 +129,29 @@ export function runOperationsSystemsSelfCheck() {
     .map(op => op.instanceId);
 
   const stalledState: OpsState = {
-    ...base,
+    ...createInitialOpsState("life"),
     day: 8,
-    activeOps: [{ ...readyOp("OP-08-1", "OP-08", 4, 0), status: "suspended", progress: 1, duration: 4, suspendedDays: 4 }],
+    campaignLength: 30,
+    stats: { cash: 0 },
+    markets: {},
+    activeOps: [{ ...readyOp("PJ-01-1", "PJ-01", 4, 0), status: "suspended", progress: 1, duration: 7, suspendedDays: 3 }],
   };
-  const serialized = serializeOpsStateForSave(stalledState);
+  const autoAbandoned = tickOps(stalledState, 1, () => 0.42);
+  const roundTripState: OpsState = {
+    ...base,
+    activeOps: [readyOp("OP-10-1", "OP-10", 6, 0)],
+    opsHistory: [{ id: "OP-01", title: "Diplomatic Backchannel", day: 4, outcome: "success" }],
+    opsCooldowns: { "OP-02": 12 },
+    pendingFollowUps: [{ id: "OP-01-follow-up-1", opId: "OP-01", title: "Backchannel Leak", note: "A rumor tests the channel.", day: 4 }],
+  };
+  const serialized = serializeOpsStateForSave(roundTripState);
   const restored = restoreOpsStateFromSave(serialized, "war");
 
   return {
     sameDayOrder,
     suspendedAutoAbandonShape: {
-      status: stalledState.activeOps[0].status,
-      suspendedDays: stalledState.activeOps[0].suspendedDays,
+      activeOps: autoAbandoned.activeOps.length,
+      abandonedStalled: autoAbandoned.opsHistory.some(entry => entry.id === "PJ-01" && entry.outcome === "abandoned" && entry.note === "abandoned (stalled)"),
     },
     roundTripShape: {
       activeOps: restored.activeOps.length,
