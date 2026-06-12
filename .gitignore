@@ -4,3 +4,4 @@ work/
 outputs/
 *.tsbuildinfo
 .DS_Store
+.smoke/
