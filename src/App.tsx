@@ -13,10 +13,300 @@ const TCOL = { MIL: { bg: "#FCEBEB", tx: "#A32D2D", bd: "#F09595" }, DIP: { bg: 
 const tc = tag => TCOL[tag] || TCOL.DIP;
 const vC = v => v >= 65 ? "#1D9E75" : v >= 40 ? "#BA7517" : "#E24B4A";
 const vBg = v => v >= 65 ? "#EAF3DE" : v >= 40 ? "#FAEEDA" : "#FCEBEB";
+const riskC = v => v < 35 ? "#1D9E75" : v < 65 ? "#BA7517" : "#E24B4A";
+const riskBg = v => v < 35 ? "#EAF3DE" : v < 65 ? "#FAEEDA" : "#FCEBEB";
 const thrC = t => ({ High: "#A32D2D", Critical: "#A32D2D", Active: "#A32D2D", Imminent: "#712B13", Strategic: "#3C3489", Medium: "#854F0B", Low: "#3B6D11", None: "#888", "N/A": "#888" }[t] || "#888");
 const thrBg = t => ({ High: "#FCEBEB", Critical: "#FCEBEB", Active: "#FCEBEB", Imminent: "#FAECE7", Strategic: "#EEEDFE", Medium: "#FAEEDA", Low: "#EAF3DE", None: "#f5f5f5", "N/A": "#f5f5f5" }[t] || "#f5f5f5");
 const stC = s => ({ deployed: "#A32D2D", blockade: "#A32D2D", active: "#1D9E75", "combat alert": "#A32D2D", "on standby": "#854F0B", "forward deployed": "#A32D2D", staging: "#854F0B", transit: "#854F0B", standby: "#888", covert: "#3C3489", patrol: "#3C3489", harbor: "#1D9E75", alert: "#854F0B", approaching: "#712B13", "on-station": "#1D9E75", defensive: "#888", secured: "#3C3489", partial: "#854F0B", inactive: "#888" }[s] || "#888");
 const supC = d => d >= 999 ? "#1D9E75" : d < 15 ? "#A32D2D" : d < 30 ? "#BA7517" : "#1D9E75";
+
+const CRISIS_META: AnyRecord = {
+  globalStability: { label: "Global Stability", goodHigh: true },
+  escalationLevel: { label: "Escalation Level" },
+  financialContagion: { label: "Financial Contagion" },
+  oilShock: { label: "Oil Shock" },
+  foodInflation: { label: "Food Inflation" },
+  semiconductorSupply: { label: "Semiconductor Supply", goodHigh: true },
+  shippingInsuranceCost: { label: "Shipping Insurance Cost" },
+  cyberDisruption: { label: "Cyber Disruption" },
+  refugeePressure: { label: "Refugee Pressure" },
+  mediaPanic: { label: "Media Panic" },
+  allianceCohesion: { label: "Alliance Cohesion", goodHigh: true },
+  publicTrust: { label: "Public Trust", goodHigh: true },
+  warWeariness: { label: "War Weariness" },
+  humanitarianDamage: { label: "Humanitarian Damage" },
+  nuclearRisk: { label: "Nuclear Risk" },
+};
+const DEFAULT_CRISIS: StatMap = { globalStability: 62, escalationLevel: 22, financialContagion: 24, oilShock: 32, foodInflation: 28, semiconductorSupply: 72, shippingInsuranceCost: 34, cyberDisruption: 18, refugeePressure: 16, mediaPanic: 25, allianceCohesion: 58, publicTrust: 54, warWeariness: 12, humanitarianDamage: 14, nuclearRisk: 12 };
+const crisisC = (k, v) => CRISIS_META[k]?.goodHigh ? vC(v) : riskC(v);
+const crisisBg = (k, v) => CRISIS_META[k]?.goodHigh ? vBg(v) : riskBg(v);
+const applyCrisis = (s: StatMap, e: StatMap = {}) => {
+  const n = { ...s };
+  Object.entries(e).forEach(([k, v]) => { if (n[k] !== undefined) n[k] = cl(n[k] + Number(v)); });
+  return n;
+};
+const crisisImpact = (c: AnyRecord): StatMap => {
+  const e = c.e || {};
+  const badGlobal = Math.max(0, -(e.global || 0));
+  const badEconomy = Math.max(0, -(e.economy || 0));
+  const badCred = Math.max(0, -(e.credibility || 0));
+  const badDomestic = Math.max(0, -(e.domestic || 0));
+  const badSupply = Math.max(0, -(e.supply || 0));
+  const badFuel = Math.max(0, -(e.fuel || 0));
+  const badFood = Math.max(0, -(e.food || 0));
+  const tag = c.tag;
+  return {
+    globalStability: Math.round((e.global || 0) / 2 + (e.stability || 0) / 2 - (c.strike ? 5 : 0)),
+    escalationLevel: (c.strike ? 14 : 0) + (tag === "MIL" ? 4 : 0) + (tag === "STR" ? 8 : 0) - (tag === "DIP" ? 3 : 0),
+    financialContagion: Math.round(badEconomy / 2 + Math.max(0, -(e.chest || 0)) / 3 + (tag === "FIN" && c.type !== "good" ? 4 : 0)),
+    oilShock: Math.round(badFuel + (tag === "MIL" || tag === "STR" ? 3 : 0)),
+    foodInflation: Math.round(badFood + badSupply / 2 + (tag === "HUM" && c.type === "good" ? -4 : 0)),
+    semiconductorSupply: Math.round(-badEconomy / 2 - (tag === "INT" && c.type !== "good" ? 3 : 0)),
+    shippingInsuranceCost: Math.round((tag === "LOG" && c.type !== "good" ? 5 : 0) + badSupply / 2 + (c.strike ? 4 : 0)),
+    cyberDisruption: (tag === "INT" ? (c.type === "good" ? -2 : 5) : 0) + (c.strike ? 2 : 0),
+    refugeePressure: Math.round((tag === "MIL" || tag === "STR" ? 4 : 0) + badGlobal / 2 + (c.strike ? 5 : 0)),
+    mediaPanic: Math.round(badCred / 2 + badDomestic / 2 + badGlobal / 2 + (c.strike ? 4 : 0)),
+    allianceCohesion: Math.round((e.coalition || 0) / 2 + (e.global || 0) / 4 + (e.credibility || 0) / 4),
+    publicTrust: Math.round((e.domestic || 0) / 2 + (e.credibility || 0) / 3 - (c.strike ? 3 : 0)),
+    warWeariness: (c.strike ? 6 : 0) + (tag === "MIL" ? 3 : 0) - (tag === "DIP" ? 2 : 0),
+    humanitarianDamage: Math.round((c.strike ? 7 : 0) + badGlobal / 2 + badFood / 2 + (tag === "HUM" && c.type === "good" ? -6 : 0)),
+    nuclearRisk: (c.strike ? 7 : 0) + (tag === "STR" ? 5 : 0) + (tag === "DIP" ? -2 : 0),
+  };
+};
+const DECISION_CATEGORIES: AnyRecord = {
+  MIL: "Military",
+  STR: "Military",
+  DIP: "Diplomacy",
+  INT: "Intelligence",
+  PRX: "Intelligence",
+  CYB: "Cyber",
+  FIN: "Finance",
+  ECO: "Finance",
+  ECO2: "Finance",
+  LOG: "Logistics",
+  SUP: "Logistics",
+  POL: "Domestic Politics",
+  HUM: "Humanitarian",
+  CARE: "Humanitarian",
+};
+const categoryOf = (c: AnyRecord) => c.strike ? "Military" : (DECISION_CATEGORIES[c.tag] || "Diplomacy");
+const decisionCategoryKeys = ["Military", "Diplomacy", "Cyber", "Finance", "Intelligence", "Logistics", "Domestic Politics", "Humanitarian"];
+const emptyDecisionCounts = () => Object.fromEntries(decisionCategoryKeys.map(k => [k, 0]));
+const topDeltas = (e: StatMap = {}, meta: AnyRecord = {}, limit = 3) => Object.entries(e)
+  .filter(([, v]) => Number(v) !== 0)
+  .sort((a, b) => Math.abs(Number(b[1])) - Math.abs(Number(a[1])))
+  .slice(0, limit)
+  .map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${meta[k]?.label || k}`);
+const previewFor = (c: AnyRecord) => {
+  const cat = categoryOf(c);
+  const direct = topDeltas(c.e || {}, {}, 2);
+  const global = topDeltas(crisisImpact(c), CRISIS_META, 2);
+  const tone = c.type === "good" ? "Lower-risk" : c.type === "bad" ? "High-risk" : "Tradeoff";
+  return `${cat} · ${tone}${direct.length ? ` · ${direct.join(", ")}` : ""}${global.length ? ` · Global: ${global.join(", ")}` : ""}`;
+};
+const factionFocus = (fid: string, st: StatMap) => {
+  const focus: AnyRecord = {
+    us_dem: ["coalition", "domestic", "resolve"],
+    china: ["politburo", "pla", "resolve"],
+    russia: ["oligarch", "nato", "proxy"],
+    north_korea: ["kim", "food", "fuel"],
+    asean: ["unity", "malacca", "economy"],
+    eu: ["unity", "leverage", "economy"],
+    un: ["p5", "hum", "global"],
+  };
+  return (focus[fid] || Object.keys(st).slice(6, 9)).filter(k => st[k] !== undefined);
+};
+const strategicPosture = (fid: string, st: StatMap, crisis: StatMap) => {
+  if (crisis.nuclearRisk >= 65 || crisis.escalationLevel >= 75) return "Brink management";
+  if (crisis.financialContagion >= 65 || crisis.oilShock >= 65) return "Economic firebreak";
+  if (fid === "asean" && (st.unity || 0) < 45) return "Bloc survival";
+  if (fid === "north_korea" && (st.food || 0) < 40) return "Regime triage";
+  if (fid === "un" && (st.hum || 0) < 45) return "Humanitarian access";
+  if ((st.military || 0) >= 75) return "Hard-power leverage";
+  if ((st.credibility || 0) >= 70) return "Diplomatic leverage";
+  return "Crisis balancing";
+};
+const logEntryFor = (day: number, act: number, faction: AnyRecord, sc: AnyRecord, c: AnyRecord) =>
+  `D${day} · Act ${act} · ${categoryOf(c)}: ${faction.sub} chose "${c.l}" during "${sc.t}". ${c.o}`;
+const turningPointFor = (day: number, act: number, sc: AnyRecord, c: AnyRecord, crisisDelta: StatMap) => {
+  const largest = topDeltas(crisisDelta, CRISIS_META, 1)[0];
+  const marker = c.strike ? "Strike threshold" : c.type === "bad" ? "Crisis setback" : c.type === "good" ? "Strategic gain" : "Major tradeoff";
+  return { day, act, title: marker, body: `${sc.t}${largest ? ` · ${largest}` : ""}` };
+};
+
+const pressureC = (meta: AnyRecord, v: number) => meta?.riskHigh ? riskC(v) : vC(v);
+const pressureBg = (meta: AnyRecord, v: number) => meta?.riskHigh ? riskBg(v) : vBg(v);
+
+const FACTION_IDENTITY: AnyRecord = {
+  us_dem: { why: "Win through coalition legitimacy. Speed helps, but caucus pressure and funding can hollow out the mandate.", mechanic: "Legitimacy balance: keep allied confidence above caucus pressure while preserving funding.", stats: { prog: { label: "Progressive Caucus Pressure", start: 46, riskHigh: true }, alliedConf: { label: "Allied Confidence", start: 64 }, approvalFloor: { label: "Approval Floor", start: 58 }, funding: { label: "Congressional Funding", start: 62 } } },
+  us_rep: { why: "Win through deterrence without frightening allies into hedging. Hawks reward force; allies punish recklessness.", mechanic: "Deterrence bargain: raise credibility and mandate while containing allied anxiety.", stats: { hawk: { label: "Hawk Pressure", start: 64, riskHigh: true }, alliedAnxiety: { label: "Allied Anxiety", start: 42, riskHigh: true }, deterrence: { label: "Deterrence Credibility", start: 68 }, warMandate: { label: "War Mandate", start: 56 } } },
+  china: { why: "The clock is internal as much as military. Blockade gains mean little if protest risk, PLA loyalty, or legitimacy breaks first.", mechanic: "Blockade clock: raise blockade effectiveness before protest and elite pressure overtake it.", stats: { politburoUnity: { label: "Politburo Unity", start: 64 }, plaLoyalty: { label: "PLA Loyalty", start: 76 }, xiLegitimacy: { label: "Xi Legitimacy", start: 70 }, protestRisk: { label: "Protest Risk", start: 32, riskHigh: true }, blockade: { label: "Blockade Effectiveness", start: 58 } } },
+  eu: { why: "Europe wins by making economic statecraft decisive before member-state splits drain authority.", mechanic: "Sanctions fulcrum: convert sanctions leverage without collapsing council unity or energy resilience.", stats: { councilUnity: { label: "Council Unity", start: 58 }, energyResilience: { label: "Energy Resilience", start: 52 }, sanctionsLeverage: { label: "Sanctions Leverage", start: 66 }, defectionRisk: { label: "Defection Risk", start: 36, riskHigh: true } } },
+  un: { why: "The UN cannot win by force. It wins when access, observers, and P5 language survive long enough to become a ceasefire.", mechanic: "Access versus paralysis: build corridors and observers while P5 consensus stays above collapse.", stats: { p5Consensus: { label: "P5 Consensus", start: 42 }, humanitarianAccess: { label: "Humanitarian Access", start: 56 }, observerCredibility: { label: "Observer Credibility", start: 52 }, ceasefireFramework: { label: "Ceasefire Framework", start: 34 } } },
+  russia: { why: "Chaos is profitable until NATO re-centers on Europe. Every auction carries an encirclement price.", mechanic: "Chaos auction: grow energy leverage and Ukraine opportunity while NATO alert stays manageable.", stats: { oligarchLoyalty: { label: "Oligarch Loyalty", start: 66 }, natoAlert: { label: "NATO Alert Level", start: 60, riskHigh: true }, energyLeverage: { label: "Energy Leverage", start: 72 }, ukraineOpportunity: { label: "Ukraine Opportunity", start: 58 } } },
+  north_korea: { why: "Leverage rises with missile drama, but food shortage and elite fear can turn bargaining into regime risk.", mechanic: "Extortion ladder: climb missile pressure for concessions while food reserve and coup risk remain survivable.", stats: { kimLoyalty: { label: "Kim Loyalty", start: 76 }, foodReserve: { label: "Food Reserve", start: 42 }, militaryLoyalty: { label: "Military Loyalty", start: 64 }, coupRisk: { label: "Coup Risk", start: 28, riskHigh: true }, missileLadder: { label: "Missile Ladder", start: 38, riskHigh: true } } },
+  asean: { why: "ASEAN survives by balancing neutrality, Malacca control, currency defense, and member-state alignment.", mechanic: "Neutrality balance: keep unity and currency stability high while China and US dependency avoid capture.", stats: { aseanUnity: { label: "ASEAN Unity", start: 55 }, malaccaControl: { label: "Malacca Control", start: 78 }, currencyStability: { label: "Currency Stability", start: 48 }, singaporePosition: { label: "Singapore Position", start: 62 }, malaysiaPosition: { label: "Malaysia Position", start: 52 }, indonesiaPosition: { label: "Indonesia Position", start: 54 }, vietnamPosition: { label: "Vietnam Position", start: 58 }, philippinesPosition: { label: "Philippines Position", start: 60 }, chinaDependency: { label: "China Dependency", start: 44, riskHigh: true }, usDependency: { label: "US Dependency", start: 42, riskHigh: true } } },
+};
+const factionMeta = (fid: string) => FACTION_IDENTITY[fid] || { stats: {}, why: "", mechanic: "" };
+const factionPressureKeys = (fid: string) => Object.keys(factionMeta(fid).stats || {});
+const factionInitialStats = (fid: string, base: StatMap) => ({ ...base, ...Object.fromEntries(factionPressureKeys(fid).map(k => [k, factionMeta(fid).stats[k].start])) });
+const factionPressureImpact = (fid: string, c: AnyRecord, crisis: StatMap): StatMap => {
+  const cat = categoryOf(c), e = c.e || {}, d: StatMap = {}, text = `${c.l || ""} ${c.o || ""}`.toLowerCase();
+  const add = (k: string, v: number) => { d[k] = (d[k] || 0) + v; };
+  if (fid === "us_dem") { if (cat === "Military") { add("prog", 7 + (c.strike ? 5 : 0)); add("alliedConf", 4); add("approvalFloor", -4); add("funding", -3); } if (cat === "Diplomacy" || cat === "Humanitarian") { add("prog", -5); add("alliedConf", 5); add("approvalFloor", 2); } if (cat === "Finance" || cat === "Logistics") add("funding", Number(e.chest || 0) < 0 ? -6 : 3); }
+  if (fid === "us_rep") { if (cat === "Military") { add("deterrence", 7 + (c.strike ? 4 : 0)); add("hawk", -4); add("warMandate", 4); add("alliedAnxiety", 6 + (c.strike ? 4 : 0)); } if (cat === "Diplomacy" || cat === "Humanitarian") { add("hawk", 6); add("alliedAnxiety", -5); add("warMandate", -3); } if (cat === "Intelligence" || cat === "Cyber") add("deterrence", 4); }
+  if (fid === "china") { if (cat === "Military") { add("blockade", 8); add("plaLoyalty", 5); add("protestRisk", 5 + (c.strike ? 5 : 0)); add("xiLegitimacy", 3); } if (cat === "Diplomacy") { add("politburoUnity", 3); add("plaLoyalty", -4); add("protestRisk", -4); add("blockade", -3); } if (cat === "Finance" || Number(e.economy || 0) < 0) { add("protestRisk", 5); add("xiLegitimacy", -3); } }
+  if (fid === "eu") { if (cat === "Finance") { add("sanctionsLeverage", 7); add("energyResilience", Number(e.economy || 0) < 0 ? -4 : 2); add("defectionRisk", Number(e.unity || 0) < 0 ? 6 : -3); } if (cat === "Diplomacy" || cat === "Humanitarian") { add("councilUnity", 5); add("defectionRisk", -4); } if (cat === "Military") { add("councilUnity", -5); add("sanctionsLeverage", 3); } }
+  if (fid === "un") { if (cat === "Humanitarian" || cat === "Logistics") { add("humanitarianAccess", 8); add("observerCredibility", 4); add("ceasefireFramework", 3); } if (cat === "Diplomacy") { add("p5Consensus", 5); add("ceasefireFramework", 6); } if (cat === "Military" || cat === "Domestic Politics") { add("p5Consensus", -6); add("humanitarianAccess", -3); } }
+  if (fid === "russia") { if (cat === "Finance" || cat === "Logistics") { add("energyLeverage", 6); add("oligarchLoyalty", 4); } if (cat === "Military" || cat === "Intelligence") { add("ukraineOpportunity", 7); add("natoAlert", 7 + (c.strike ? 4 : 0)); add("oligarchLoyalty", -3); } if (cat === "Diplomacy") { add("natoAlert", -6); add("oligarchLoyalty", 2); } }
+  if (fid === "north_korea") { if (cat === "Military") { add("missileLadder", 9 + (c.strike ? 5 : 0)); add("kimLoyalty", 4); add("militaryLoyalty", 5); add("foodReserve", -4); add("coupRisk", -2); } if (cat === "Diplomacy" || cat === "Humanitarian") { add("foodReserve", 8); add("coupRisk", -4); add("kimLoyalty", -2); } if (Number(e.food || 0) < 0) { add("coupRisk", 5); add("foodReserve", -3); } }
+  if (fid === "asean") { if (cat === "Diplomacy" || cat === "Humanitarian") { add("aseanUnity", 5); add("currencyStability", 3); } if (cat === "Military") { add("malaccaControl", 7); add("aseanUnity", Number(e.unity || 0) < 0 ? -5 : 2); add("currencyStability", -4); } if (cat === "Finance") { add("currencyStability", 8); add("aseanUnity", 3); } if (text.includes("china") || text.includes("yuan") || text.includes("bri")) add("chinaDependency", 7); if (text.includes("us ") || text.includes("u.s") || text.includes("american")) add("usDependency", 7); if (Number(e.malacca || 0) > 0) add("malaccaControl", 4); }
+  if (crisis.mediaPanic >= 65) add(fid === "china" ? "protestRisk" : fid === "north_korea" ? "coupRisk" : "approvalFloor", -2);
+  return d;
+};
+const factionTriggeredEvent = (fid: string, st: StatMap, crisis: StatMap, used: Set<string>) => {
+  const events: AnyRecord = {
+    us_dem: [{ id: "dem_caucus_revolt", when: () => st.prog >= 68 && st.funding < 55, t: "Progressive Caucus Revolt", d: "The caucus threatens to freeze the next supplemental unless the White House publishes tighter war-powers guardrails.", e: { prog: -8, funding: -4, domestic: 5, military: -3 }, crisis: { publicTrust: 3, allianceCohesion: 2 } }, { id: "dem_allied_room", when: () => st.alliedConf >= 76 && crisis.allianceCohesion >= 62, t: "Allied Supermajority Holds", d: "Five allied capitals publicly back the process. Legitimacy is producing operational cover.", e: { alliedConf: 6, credibility: 5, coalition: 4 }, crisis: { allianceCohesion: 5, mediaPanic: -3 } }],
+    us_rep: [{ id: "rep_allied_panic", when: () => st.alliedAnxiety >= 68, t: "Allied Anxiety Cable", d: "Tokyo, Canberra, and Berlin ask whether deterrence has become escalation by another name.", e: { alliedAnxiety: -6, deterrence: -3, credibility: -4 }, crisis: { allianceCohesion: -6, mediaPanic: 4 } }, { id: "rep_deterrence_rally", when: () => st.deterrence >= 78 && st.warMandate >= 62, t: "Deterrence Rally", d: "Congressional hawks and defense governors align behind a Pacific readiness package.", e: { warMandate: 7, military: 4 }, crisis: { publicTrust: 3, escalationLevel: 2 } }],
+    china: [{ id: "china_protest", when: () => st.protestRisk >= 62, t: "Coastal Protest Wave", d: "Export layoffs and war rumors trigger visible unrest in coastal cities. The censors are no longer enough.", e: { protestRisk: -6, xiLegitimacy: -5, domestic: -5 }, crisis: { mediaPanic: 5, financialContagion: 3 } }, { id: "china_blockade_clock", when: () => st.blockade >= 76 && st.plaLoyalty >= 68, t: "Blockade Clock Accelerates", d: "The quarantine tightens. Taiwan fuel planners talk in days, not weeks.", e: { blockade: 5, plaLoyalty: 3, military: 5 }, crisis: { shippingInsuranceCost: 5, escalationLevel: 4 } }],
+    eu: [{ id: "eu_defection", when: () => st.defectionRisk >= 62, t: "Member-State Defection Threat", d: "Two capitals may break sanctions unity unless energy relief arrives immediately.", e: { councilUnity: -6, defectionRisk: -5, energyResilience: -3 }, crisis: { allianceCohesion: -4, oilShock: 3 } }, { id: "eu_sanctions_window", when: () => st.sanctionsLeverage >= 78 && st.councilUnity >= 55, t: "Sanctions Window Opens", d: "Markets believe Brussels can deliver a coordinated package. Leverage becomes real.", e: { sanctionsLeverage: 6, credibility: 5 }, crisis: { financialContagion: 3, allianceCohesion: 3 } }],
+    un: [{ id: "un_corridor", when: () => st.humanitarianAccess >= 72 && st.p5Consensus >= 42, t: "Relief Corridor Accepted", d: "Military liaisons accept a notification corridor. Aid begins moving through ASEAN ports.", e: { humanitarianAccess: 6, observerCredibility: 5, hum: 5 }, crisis: { humanitarianDamage: -7, refugeePressure: -4 } }, { id: "un_p5_paralysis", when: () => st.p5Consensus <= 28, t: "P5 Paralysis", d: "The Council chamber becomes theater. Agencies improvise outside formal authority.", e: { p5Consensus: 4, credibility: -5, hum: -4 }, crisis: { publicTrust: -3, humanitarianDamage: 5 } }],
+    russia: [{ id: "russia_nato_tripwire", when: () => st.natoAlert >= 78, t: "NATO Tripwire Activated", d: "NATO planners shift attention back to Europe. The Taiwan distraction is no longer free.", e: { natoAlert: -5, ukraineOpportunity: -6, military: -3 }, crisis: { allianceCohesion: 4, nuclearRisk: 3 } }, { id: "russia_energy_premium", when: () => st.energyLeverage >= 82 && st.oligarchLoyalty >= 60, t: "Energy Premium Captured", d: "Buyers accept Moscow's crisis premium. The auction is ugly, but it pays.", e: { economy: 6, chest: 5, oligarchLoyalty: 4 }, crisis: { oilShock: 4, financialContagion: 2 } }],
+    north_korea: [{ id: "nk_coup_warning", when: () => st.coupRisk >= 58 || st.foodReserve <= 24, t: "Coup Warning", d: "Security services report unusual corps-level calls. Food scarcity is turning elite anxiety into movement.", e: { coupRisk: -5, kimLoyalty: -4, militaryLoyalty: -3 }, crisis: { nuclearRisk: 4, mediaPanic: 3 } }, { id: "nk_extortion_pays", when: () => st.missileLadder >= 72 && st.coupRisk < 55, t: "Extortion Pays", d: "Both superpowers quietly raise their offers. The missile ladder is dangerous, but the price is higher now.", e: { foodReserve: 6, fuel: 5, kimLoyalty: 4 }, crisis: { nuclearRisk: 3, publicTrust: -2 } }],
+    asean: [{ id: "asean_currency_break", when: () => st.currencyStability <= 28, t: "Currency Defense Breaks", d: "Regional currencies gap down at open. Neutrality becomes harder when cabinets fear food-price protests.", e: { currencyStability: 6, aseanUnity: -5, economy: -4 }, crisis: { financialContagion: 6, foodInflation: 4 } }, { id: "asean_neutrality_premium", when: () => st.aseanUnity >= 70 && st.malaccaControl >= 74, t: "Neutrality Premium", d: "Both blocs court ASEAN instead of threatening it. Malacca control becomes bargaining power.", e: { aseanUnity: 4, credibility: 5, currencyStability: 4 }, crisis: { shippingInsuranceCost: -4, allianceCohesion: 3 } }],
+  };
+  return (events[fid] || []).find(e => !used.has(e.id) && e.when());
+};
+const factionEndingNote = (fid: string, st: StatMap) => {
+  if (fid === "us_dem") return st.alliedConf > st.prog ? "Coalition legitimacy outpaced domestic caucus pressure." : "Domestic caucus pressure constrained the coalition strategy.";
+  if (fid === "us_rep") return st.deterrence > 72 && st.alliedAnxiety < 60 ? "Deterrence held without fully panicking allies." : "The deterrence strategy left allied anxiety as a lasting cost.";
+  if (fid === "china") return st.blockade > 72 && st.protestRisk < 55 ? "The blockade clock beat the domestic pressure clock." : "Internal pressure limited what the blockade could achieve.";
+  if (fid === "eu") return st.sanctionsLeverage > 72 && st.councilUnity > 55 ? "EU economic statecraft stayed unified enough to matter." : "Council splits blunted Europe's leverage.";
+  if (fid === "un") return st.humanitarianAccess > 68 && st.ceasefireFramework > 55 ? "Humanitarian access matured into a ceasefire architecture." : "Humanitarian access remained too fragile to define the settlement.";
+  if (fid === "russia") return st.energyLeverage > 76 && st.natoAlert < 70 ? "Russia profited from chaos without fully reawakening NATO." : "The chaos auction raised NATO alert alongside Russian leverage.";
+  if (fid === "north_korea") return st.foodReserve > 50 && st.coupRisk < 45 ? "The regime extracted concessions without letting scarcity become a coup vector." : "Food and coup risk remained the real ceiling on Pyongyang's leverage.";
+  if (fid === "asean") return st.aseanUnity > 65 && st.currencyStability > 45 ? "ASEAN's neutrality survived because the bloc and currencies held together." : "Neutrality was weakened by bloc fracture and currency pressure.";
+  return "";
+};
+const fleetRisk = (t = "Low") => ({ None: 5, Low: 18, Medium: 38, High: 62, Critical: 82, Active: 64, Imminent: 74, Strategic: 70, "N/A": 5 }[t] || 35);
+const fleetMissionFor = (fid: string, fl: AnyRecord) => {
+  const text = `${fl.type} ${fl.status} ${fl.front}`.toLowerCase();
+  if (fid === "un") return text.includes("relief") || text.includes("wfp") ? "Relief corridor" : "Observer access";
+  if (fid === "eu") return text.includes("carrier") ? "Naval support option" : "Sanctions/logistics support";
+  if (fid === "china" && text.includes("amphib")) return "Amphibious pressure";
+  if (fid === "china") return "Blockade enforcement";
+  if (fid === "asean") return text.includes("malacca") ? "Malacca control" : "Neutrality patrol";
+  if (fid === "russia") return text.includes("convoy") ? "Energy convoy" : "Opportunist pressure";
+  if (fid === "north_korea") return text.includes("rocket") || text.includes("artillery") ? "Missile/artillery coercion" : "Regime defense";
+  return text.includes("carrier") ? "Carrier deterrence" : "Theater logistics";
+};
+const normalizeFleets = (fid: string, fleets: AnyRecord[] = []) => fleets.map((fl, i) => ({
+  ...fl,
+  id: `${fid}-${i}`,
+  location: fl.front,
+  mission: fl.mission || fleetMissionFor(fid, fl),
+  fuel: fl.fuel ?? cl((fl.sup >= 999 ? 82 : fl.sup * 2) + (fl.status === "deployed" || fl.status === "blockade" ? 10 : 0)),
+  readiness: fl.readiness ?? cl(72 + (fl.status === "deployed" || fl.status === "active" || fl.status === "combat alert" ? 12 : 0) - (fl.sup < 20 ? 18 : 0) - Math.round(fleetRisk(fl.threat) / 8)),
+}));
+const fleetSummary = (fleets: AnyRecord[] = []) => {
+  const n = Math.max(1, fleets.length);
+  const avg = (k: string) => Math.round(fleets.reduce((a, f) => a + Number(f[k] || 0), 0) / n);
+  const forward = fleets.filter(f => ["deployed", "blockade", "active", "combat alert", "forward deployed", "on-station"].includes(f.status)).length;
+  const threat = Math.round(fleets.reduce((a, f) => a + fleetRisk(f.threat), 0) / n);
+  return { seaControl: cl(avg("readiness") + forward * 4 - threat / 3), readiness: avg("readiness"), supply: avg("sup"), fuel: avg("fuel"), threat };
+};
+const fleetActionEffect = (fid: string, fl: AnyRecord, action: string) => {
+  const effects: AnyRecord = {
+    Deploy: { status: "deployed", mission: "Forward presence", eta: Math.max(0, (fl.eta || 0) - 2), fuel: -8, sup: -4, readiness: -2, stats: { military: 4, credibility: 2, coalition: 1, supply: -2 }, crisis: { escalationLevel: 3, shippingInsuranceCost: 2 } },
+    Hold: { status: "standby", mission: "Hold position", fuel: 3, sup: 2, readiness: 2, stats: { domestic: 1 }, crisis: { escalationLevel: -1 } },
+    Resupply: { status: fl.status, mission: "Resupply cycle", fuel: 12, sup: 10, readiness: 4, stats: { supply: 6, chest: -4, military: 2, coalition: 1 }, crisis: { shippingInsuranceCost: 2 } },
+    Escort: { status: "deployed", mission: fid === "un" ? "Aid escort" : "Convoy escort", fuel: -5, sup: -3, readiness: 3, stats: { supply: 4, credibility: 2, coalition: 3 }, crisis: { shippingInsuranceCost: -4, escalationLevel: 2 } },
+    Shadow: { status: "covert", mission: "Shadow target", fuel: -4, sup: -2, readiness: 2, stats: { credibility: 2, military: 1 }, crisis: { cyberDisruption: 1, escalationLevel: 1 } },
+    Interdict: { status: "active", mission: fid === "un" ? "Inspection hold" : "Interdiction", fuel: -8, sup: -5, readiness: -4, stats: { military: 5, credibility: -2 }, crisis: { escalationLevel: 7, shippingInsuranceCost: 5, nuclearRisk: 2 } },
+    Retreat: { status: "standby", mission: "Withdraw/recover", eta: (fl.eta || 0) + 2, fuel: 4, sup: 3, readiness: 1, stats: { military: -3, credibility: -4 }, crisis: { escalationLevel: -4, warWeariness: -2 } },
+    "Strike Ready": { status: "combat alert", mission: "Strike ready", fuel: -6, sup: -3, readiness: 5, stats: { military: 6, resolve: 3, credibility: 2 }, crisis: { escalationLevel: 6, nuclearRisk: 4, mediaPanic: 3 } },
+  };
+  const e = effects[action] || effects.Hold;
+  if (fid === "un" && ["Interdict", "Strike Ready"].includes(action)) e.crisis = { ...e.crisis, humanitarianDamage: 3, publicTrust: -3 };
+  return e;
+};
+const applyFleetPatch = (fl: AnyRecord, e: AnyRecord) => ({
+  ...fl,
+  status: e.status || fl.status,
+  mission: e.mission || fl.mission,
+  eta: e.eta ?? fl.eta,
+  fuel: cl((fl.fuel ?? 50) + (e.fuel || 0)),
+  sup: fl.sup >= 999 ? 999 : Math.max(0, Math.round((fl.sup || 0) + (e.sup || 0))),
+  readiness: cl((fl.readiness ?? 55) + (e.readiness || 0)),
+});
+const FLEET_COMMAND_POINTS_PER_DAY = 2;
+const fleetActionCost = (action: string) => action === "Strike Ready" ? 2 : 1;
+const fleetStatusBlockReason = (fl: AnyRecord, action: string) => {
+  const status = String(fl.status || "").toLowerCase();
+  const name = String(fl.name || "").toLowerCase();
+  if (name.includes("hostile") || status === "approaching") return "Action unavailable due to fleet status";
+  if (status === "inactive" && !["Hold", "Resupply"].includes(action)) return "Action unavailable due to fleet status";
+  if (status === "harbor" && ["Interdict", "Strike Ready"].includes(action)) return "Action unavailable due to fleet status";
+  return "";
+};
+const fleetTriggeredEvent = (fid: string, fleets: AnyRecord[], used: Set<string>) => {
+  const s = fleetSummary(fleets);
+  const list = [
+    { id: "fleet_supply_crunch", when: () => s.supply < 20, t: "Fleet Supply Crunch", d: "Forward assets report that fuel and munitions are being rationed. The next operational window is narrowing.", e: { military: -6, supply: -5, credibility: -3 }, crisis: { shippingInsuranceCost: 5, escalationLevel: 2 } },
+    { id: "fleet_sea_control", when: () => s.seaControl > 76, t: fid === "un" ? "Corridor Control Improves" : "Sea Control Window", d: "Your taskforces have enough posture, fuel, and readiness to shape the maritime tempo this week.", e: { military: 5, credibility: 4, supply: 3 }, crisis: { shippingInsuranceCost: -4, allianceCohesion: 3 } },
+    { id: "fleet_fuel_warning", when: () => s.fuel < 28, t: "Fleet Fuel Warning", d: "Operations staff warn that the next action may be decided by tankers and port access rather than firepower.", e: { fuel: -5, military: -3 }, crisis: { oilShock: 4, warWeariness: 2 } },
+  ];
+  return list.find(e => !used.has(e.id) && e.when());
+};
+const fleetEndingNote = (fid: string, fleets: AnyRecord[] = []) => {
+  const s = fleetSummary(fleets);
+  if (!fleets.length) return "";
+  if (s.seaControl >= 74 && s.readiness >= 62) return fid === "un" ? "Relief and observer assets kept enough corridor control to matter." : "Fleet posture delivered meaningful sea control in the endgame.";
+  if (s.supply < 24 || s.fuel < 30) return "Logistics, fuel, and resupply limits capped the final military options.";
+  if (s.threat >= 68) return "Fleet risk stayed high enough that every final move carried escalation danger.";
+  return "Fleet logistics remained serviceable but never decisive.";
+};
+const hasChain = (history: AnyRecord[] = [], id: string) => history.some(e => e.id === id);
+const chainEventOptions = (ctx: AnyRecord) => {
+  const { fid, stats: st, crisis: cr, fleets, act, day, counts, lastChoice, history } = ctx;
+  const f = fleetSummary(fleets);
+  const cat = categoryOf(lastChoice || {});
+  const lowCyberPrep = Number(counts.Cyber || 0) + Number(counts.Intelligence || 0) < 2;
+  return [
+    { id: "cyber_bank", t: "Cyberattack Hits Banking System", d: "A coordinated intrusion freezes interbank settlement across three Asian financial centers. Crisis liquidity desks switch to manual procedures.", e: { economy: -8, credibility: -4, chest: -5 }, crisis: { cyberDisruption: 12, financialContagion: 8, mediaPanic: 6 }, score: cr.cyberDisruption + cr.financialContagion / 2 + (lowCyberPrep ? 18 : -10), follow: "market_crash" },
+    { id: "oil_insurance", t: "Oil Tanker Insurance Spikes", d: "War-risk underwriters triple premiums for hulls entering the Western Pacific. Fuel contracts reprice before diplomats finish their statements.", e: { fuel: -7, economy: -4, supply: -4 }, crisis: { oilShock: 9, shippingInsuranceCost: 12, foodInflation: 4 }, score: cr.shippingInsuranceCost + cr.oilShock / 2 + (f.seaControl < 45 ? 15 : -8), follow: "fleet_resupply_fail" },
+    { id: "semis_halt", t: "Semiconductor Exports Halt", d: "A major foundry network pauses priority export lanes. Auto, AI, and defense supply planners all start calling at once.", e: { economy: -9, supply: -8, chest: -4 }, crisis: { semiconductorSupply: -14, financialContagion: 7, mediaPanic: 5 }, score: (100 - cr.semiconductorSupply) + cr.escalationLevel / 2 + (cat === "Military" ? 8 : 0) },
+    { id: "un_corridor_blocked", t: "UN Humanitarian Corridor Blocked", d: "A notification corridor is denied at the last checkpoint. Relief cargo sits visible, filmed, and useless.", e: { global: -7, credibility: -5, supply: -3 }, crisis: { humanitarianDamage: 10, refugeePressure: 8, publicTrust: -4 }, score: cr.humanitarianDamage + cr.escalationLevel / 2 + (fid === "un" ? 18 : 0) + ((st.humanitarianAccess || st.hum || 0) > 68 ? -20 : 0), follow: "refugee_surge" },
+    { id: "asean_communique_fails", t: "ASEAN Communique Fails", d: "The summit closes without a joint communique. Separate capitals begin briefing separate patrons.", e: { unity: -8, credibility: -5, economy: -3 }, crisis: { allianceCohesion: -6, mediaPanic: 5, shippingInsuranceCost: 3 }, score: (fid === "asean" ? 25 : 5) + (60 - (st.aseanUnity || st.unity || 55)) + (st.chinaDependency || 0) / 3 + (st.usDependency || 0) / 3 },
+    { id: "carrier_collision", t: "US Carrier Collision Scare", d: "A destroyer and civilian hull pass inside the safety envelope of a US carrier group. No collision, but everyone saw how close it was.", e: { military: -4, credibility: -3, supply: -2 }, crisis: { escalationLevel: 7, mediaPanic: 6, shippingInsuranceCost: 5 }, score: (fid === "us_dem" || fid === "us_rep" ? 20 : 4) + f.threat + (f.fuel < 45 ? 10 : 0) - (f.readiness > 72 ? 14 : 0) },
+    { id: "china_fuel_shortage", t: "Chinese Fuel Shortage", d: "Forward PLAN units begin quiet rationing. The blockade clock is now competing with the tanker clock.", e: { fuel: -8, supply: -6, military: -5, pla: -4 }, crisis: { oilShock: 5, shippingInsuranceCost: 5 }, score: (fid === "china" ? 22 : 4) + (55 - f.fuel) + (st.blockade || 0) / 3 },
+    { id: "nk_missile_launch", t: "North Korean Missile Launch", d: "A missile rises over the Sea of Japan. The launch is calibrated, but the alerts are not.", e: { military: 4, credibility: -5, food: -4 }, crisis: { nuclearRisk: 11, escalationLevel: 8, mediaPanic: 7 }, score: (fid === "north_korea" ? 22 : 8) + (st.missileLadder || 0) + cr.nuclearRisk / 2 - ((st.foodReserve || st.food || 0) > 60 ? 12 : 0), follow: "accidental_contact" },
+    { id: "russian_arctic_shadowed", t: "Russian Arctic Convoy Shadowed", d: "An unidentified submarine shadows the Arctic convoy route. Moscow can profit, pause, or provoke.", e: { economy: 3, credibility: -3, supply: -3 }, crisis: { escalationLevel: 5, oilShock: 4, shippingInsuranceCost: 4 }, score: (fid === "russia" ? 24 : 5) + (st.energyLeverage || 0) / 2 + f.threat / 2 },
+    { id: "market_crash", t: "Financial Market Crash", d: "Circuit breakers trip across Asia, then Europe. The crisis has become a balance-sheet event.", e: { economy: -14, chest: -8, domestic: -6 }, crisis: { financialContagion: 15, mediaPanic: 9, publicTrust: -6 }, score: cr.financialContagion + (hasChain(history, "cyber_bank") ? 35 : 0) + (Number(counts.Finance || 0) >= 2 ? -20 : 0) },
+    { id: "refugee_surge", t: "Refugee Surge", d: "Ports and airports report families moving before governments can publish policy. Humanitarian planning becomes domestic politics.", e: { global: -6, domestic: -5, supply: -4 }, crisis: { refugeePressure: 14, humanitarianDamage: 8, foodInflation: 5 }, score: cr.refugeePressure + cr.humanitarianDamage / 2 + (hasChain(history, "un_corridor_blocked") ? 30 : 0) },
+    { id: "protest_wave", t: "Protest Wave", d: "Screens fill with crowds: anti-war, anti-shortage, anti-government, sometimes all three in the same square.", e: { domestic: -9, stability: -6, credibility: -4 }, crisis: { publicTrust: -8, mediaPanic: 10, warWeariness: 7 }, score: cr.mediaPanic + cr.warWeariness + (st.protestRisk || st.coupRisk || 0) / 2 - ((st.approvalFloor || st.kimLoyalty || 50) > 65 ? 12 : 0) },
+    { id: "backchannel_ceasefire", t: "Backchannel Ceasefire Offer", d: "A neutral channel offers a face-saving pause. It is not peace, but it can stop the next bad hour.", e: { global: 7, credibility: 4, military: -2 }, crisis: { escalationLevel: -8, nuclearRisk: -5, humanitarianDamage: -4 }, score: day > 12 ? Number(counts.Diplomacy || 0) * 18 + cr.escalationLevel / 2 + (cr.nuclearRisk > 45 ? 15 : 0) : 0 },
+    { id: "fleet_resupply_fail", t: "Fleet Resupply Failure", d: "A critical lift package misses its window. Readiness loss spreads faster than the staff brief admits.", e: { supply: -10, military: -7, credibility: -4 }, crisis: { shippingInsuranceCost: 8, escalationLevel: 4 }, score: (45 - f.supply) + cr.shippingInsuranceCost / 2 + (hasChain(history, "oil_insurance") ? 25 : 0) },
+    { id: "hub_sabotage", t: "Logistics Hub Sabotage", d: "A port fire, false manifests, and cut fiber lines hit the same logistics hub within one hour.", e: { supply: -9, military: -4, economy: -4 }, crisis: { cyberDisruption: 8, shippingInsuranceCost: 8, mediaPanic: 4 }, score: cr.cyberDisruption + (100 - f.readiness) / 2 + (Number(counts.Logistics || 0) >= 2 ? -18 : 0) },
+    { id: "media_spiral", t: "Media Panic Spiral", d: "A clipped video outruns the correction. Three governments deny three different rumors and make all of them worse.", e: { credibility: -7, domestic: -5, global: -4 }, crisis: { mediaPanic: 14, publicTrust: -8, nuclearRisk: 3 }, score: cr.mediaPanic + (cat === "Military" ? 8 : 0) + (Number(counts.Intelligence || 0) >= 2 ? -15 : 0) },
+    { id: "accidental_contact", t: "Accidental Military Contact", d: "Two armed units touch the same airspace and both report defensive maneuvering. The replay is ambiguous enough to be dangerous.", e: { military: -3, credibility: -4, global: -7 }, crisis: { escalationLevel: 12, nuclearRisk: 6, mediaPanic: 7 }, score: cr.escalationLevel + f.threat / 2 + (hasChain(history, "nk_missile_launch") ? 20 : 0) + (cat === "Military" ? 8 : 0) },
+  ].map(e => ({ ...e, score: Math.round(e.score || 0) }));
+};
+const pickChainEvent = (ctx: AnyRecord) => {
+  const options = (chainEventOptions(ctx) as AnyRecord[])
+    .filter(e => !ctx.used.has(e.id) && e.score >= 58)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  if (!options.length) return null;
+  const total = options.reduce((a, e) => a + e.score, 0);
+  let roll = Math.random() * total;
+  return options.find(e => (roll -= e.score) <= 0) || options[0];
+};
+const chainEndingNote = (history: AnyRecord[] = []) => {
+  if (!history.length) return "";
+  const names = history.slice(-3).map(e => e.t).join(", ");
+  return `Major crisis chains shaped the campaign: ${names}.`;
+};
 
 const FACTIONS = {
   us_dem: { id: "us_dem", flag: "🇺🇸", name: "United States", sub: "Democrat Administration", color: "#185FA5", bd: "#85B7EB", bg: "#E6F1FB", tagline: "Multilateral juggler — coalition or bust", pressure: "Progressive caucus · Allied burden disputes · UN credibility · Recession fear", traits: ["Multilateral", "Sanctions-first", "Domestic division", "Coalition"], intel: "NSC emergency session. PLAN blockaded Taiwan's eastern ports — Day 1. Progressive caucus demands UN vote before any military posture. JCS says delay = weakness. Treasury: 90-day conflict = 68% recession probability.", startStats: { stability: 68, military: 78, economy: 72, credibility: 80, global: 75, domestic: 62, coalition: 70, resolve: 65, fuel: 85, supply: 80, chest: 75, proxy: 60 }, fleets: [{ name: "USS Gerald R. Ford CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "West Pacific", threat: "High", eta: 0, sup: 28, note: "On station. Strike-ready." }, { name: "USS Ronald Reagan CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "South China Sea", threat: "High", eta: 0, sup: 22, note: "Resupply needed Day 22." }, { name: "USS Nimitz CSG", type: "Carrier Strike Group", u: 9, status: "standby", front: "Pearl Harbor", threat: "None", eta: 7, sup: 45, note: "7-day transit to Taiwan Strait." }, { name: "USS Truman CSG", type: "Carrier Strike Group", u: 9, status: "transit", front: "Indian Ocean", threat: "Medium", eta: 12, sup: 40, note: "12 days from theater." }, { name: "SSN Wolf Pack Alpha", type: "Submarine Squadron", u: 6, status: "covert", front: "Taiwan Strait", threat: "Critical", eta: 0, sup: 60, note: "Undetected. PLAN unaware." }, { name: "Makin Island ARG", type: "Amphibious Ready Group", u: 5, status: "standby", front: "Okinawa", threat: "Low", eta: 2, sup: 35, note: "2,200 Marines aboard." }, { name: "B-52H Strategic Wing", type: "Strategic Bombers", u: 12, status: "on-station", front: "Andersen AFB Guam", threat: "High", eta: 0, sup: 30, note: "Armed. 4hr sortie to Strait." }] },
@@ -25,6 +315,22 @@ const FACTIONS = {
   north_korea: { id: "north_korea", flag: "🇰🇵", name: "North Korea", sub: "State Affairs Commission", color: "#993C1D", bd: "#F0997B", bg: "#FAECE7", tagline: "Rogue wildcard — extract maximum from global chaos", pressure: "Kim loyalty · 3.2M starvation risk · General Pak coup threat · Fuel at 35 days", traits: ["Missile escalation", "Guam targeting", "Kim loyalty crisis", "Succession risk"], intel: "Washington: 2M MT food plus sanctions relief if quiet. Beijing: fuel plus Hwasong upgrade plus security guarantee if you coordinate. General Pak has 4 corps commanders. Grain reserves 14%.", startStats: { stability: 48, military: 72, economy: 32, credibility: 30, global: 25, domestic: 58, kim: 78, food: 45, fuel: 35, supply: 30, chest: 25, proxy: 40 }, fleets: [{ name: "KPA Strategic Rocket Forces", type: "ICBM/IRBM Units", u: 0, status: "on standby", front: "Mobile TEL dispersed", threat: "Strategic", eta: 0, sup: 999, note: "Hwasong-18. Continental range confirmed." }, { name: "KPA 4th Corps + Artillery", type: "Ground Forces", u: 120000, status: "forward deployed", front: "DMZ forward", threat: "High", eta: 0, sup: 15, note: "CRITICAL: 15-day supply only." }, { name: "KPA 2nd Corps (Pak)", type: "Ground Forces", u: 85000, status: "alert", front: "Central DMZ", threat: "High", eta: 0, sup: 12, note: "Gen. Pak forces. Loyalty uncertain." }, { name: "KPN Submarine Force", type: "Diesel Submarine", u: 22, status: "harbor", front: "East Sea", threat: "Low", eta: 1, sup: 20, note: "Fuel critically low — 20 days." }, { name: "Food Aid Pipeline", type: "Logistics Supply", u: 0, status: "inactive", front: "Pending deal", threat: "None", eta: 7, sup: 0, note: "Activates if food deal struck." }] },
   asean: { id: "asean", flag: "🌏", name: "ASEAN Bloc", sub: "Rotating Summit Chair", color: "#854F0B", bd: "#EF9F27", bg: "#FAEEDA", tagline: "Swing vote — Malacca leverage or economic ruin", pressure: "US/China split · Malaysia vs Philippines/Vietnam · Currency collapse · PLAN in Malacca", traits: ["Malacca leverage", "Swing vote", "Bloc fracture risk", "No hard power"], intel: "ASEAN summit fracturing. Philippines + Vietnam want US alignment. Malaysia + Indonesia lean neutral. Singapore playing both sides. Malacca = 40% global trade. Ringgit -22%, rupiah -26%.", startStats: { stability: 62, military: 45, economy: 70, credibility: 58, global: 65, domestic: 60, unity: 55, malacca: 80, fuel: 65, supply: 72, chest: 45, proxy: 35 }, fleets: [{ name: "Singapore RSS Taskforce", type: "Frigate/Corvette", u: 7, status: "combat alert", front: "Strait of Malacca", threat: "Medium", eta: 0, sup: 30, note: "Best equipped navy in SEA." }, { name: "Indonesian Navy TNI-AL", type: "Frigate/Patrol", u: 14, status: "standby", front: "Natuna Islands EEZ", threat: "High", eta: 1, sup: 25, note: "Natuna EEZ contested by China." }, { name: "Philippine Navy + EDCA", type: "Patrol + US Access", u: 9, status: "deployed", front: "West Philippine Sea", threat: "High", eta: 0, sup: 20, note: "Subic Bay + Clark AFB active." }, { name: "Royal Malaysian Navy", type: "Frigate Group", u: 6, status: "standby", front: "South China Sea", threat: "Medium", eta: 1, sup: 28, note: "Frozen pending cabinet decision." }, { name: "Vietnam People's Navy", type: "Coastal Defense", u: 11, status: "combat alert", front: "Paracel/Spratly", threat: "High", eta: 0, sup: 22, note: "Battle-hardened. Anti-PLAN." }, { name: "PLAN SAG HOSTILE", type: "PLAN Surface Group", u: 14, status: "approaching", front: "Southern Malacca", threat: "Critical", eta: 1, sup: 0, note: "HOSTILE. Shandong + 14 vessels." }, { name: "Malacca Control Node", type: "Strait Control", u: 0, status: "active", front: "Singapore node", threat: "None", eta: 0, sup: 999, note: "40% global trade. 60% China energy." }] },
   eu: { id: "eu", flag: "🇪🇺", name: "European Union", sub: "Council Emergency Presidency", color: "#3B6D11", bd: "#97C459", bg: "#EAF3DE", tagline: "Economic surgeon — ceasefire without firing a shot", pressure: "27-member splits · Germany 200B China trade · Baltic states want war · Russian energy blackmail", traits: ["Sanctions toolkit", "Diplomatic reach", "Energy vulnerable", "Financial leverage"], intel: "Emergency EU Council. Germany: 200B at stake. Baltics: Maximum pressure NOW. ECB: recession threshold Day 45. China halted rare earths to 8 EU members. Russia offering gas at a price.", startStats: { stability: 65, military: 38, economy: 78, credibility: 72, global: 82, domestic: 60, unity: 58, leverage: 74, fuel: 55, supply: 70, chest: 70, proxy: 45 }, fleets: [{ name: "FS Charles de Gaulle CSG", type: "Carrier Strike Group", u: 6, status: "standby", front: "Mediterranean", threat: "None", eta: 18, sup: 40, note: "18-day transit to Taiwan theater." }, { name: "EU Maritime Taskforce", type: "Frigate Squadron", u: 8, status: "standby", front: "Indian Ocean", threat: "None", eta: 14, sup: 35, note: "Joint FR/DE/NL command." }, { name: "French SSBN Deterrent", type: "Strategic Submarine", u: 3, status: "patrol", front: "Atlantic", threat: "None", eta: 0, sup: 90, note: "Nuclear deterrent. Non-deployable." }, { name: "German Frigate Group", type: "Frigate Group", u: 4, status: "standby", front: "Baltic Sea", threat: "Low", eta: 21, sup: 30, note: "Bundestag vote required." }] },
+  un: { id: "un", flag: "UN", name: "United Nations", sub: "Secretary-General Crisis Cell", color: "#087C9A", bd: "#70C6D8", bg: "#E1F5F8", tagline: "Legitimacy is your hull; humanitarian access is your fleet", pressure: "P5 vetoes · refugee surge · aid corridors · peacekeeper safety", traits: ["Humanitarian corridors", "Ceasefire broker", "Legitimacy", "P5 management"], intel: "The Security Council is frozen, aid agencies are overloaded, and both blocs still need someone credible enough to host the room. Your power is process under fire.", startStats: { stability: 55, military: 5, economy: 50, credibility: 64, global: 78, domestic: 50, p5: 42, hum: 62, fuel: 50, supply: 60, chest: 40, proxy: 30 }, fleets: [{ name: "WFP Relief Convoy", type: "Relief Shipping", u: 9, status: "standby", front: "Singapore", threat: "High", eta: 4, sup: 45, note: "Food and medicine blocked pending corridor deal." }, { name: "UNMCC Liaison Cell", type: "Civil-Military Coordination", u: 0, status: "active", front: "Geneva", threat: "Medium", eta: 0, sup: 999, note: "Maintains deconfliction lines with all major commands." }, { name: "Peacekeeper Evacuation Lift", type: "Chartered Airlift", u: 18, status: "standby", front: "Okinawa", threat: "Medium", eta: 2, sup: 20, note: "Can evacuate observers or move medical teams." }] },
+};
+
+(FACTIONS as AnyRecord).us_rep = {
+  ...(FACTIONS as AnyRecord).us_dem,
+  id: "us_rep",
+  name: "United States",
+  sub: "Republican Administration",
+  color: "#712B13",
+  bd: "#F0997B",
+  bg: "#FAECE7",
+  tagline: "Deterrence hawk - strength without alliance panic",
+  pressure: "Hawk pressure - allied anxiety - mandate politics - deterrence credibility",
+  traits: ["Deterrence", "Forward posture", "Congressional mandate", "Alliance anxiety"],
+  intel: "The Situation Room opens with hawks demanding visible force. Allies want protection, not a blank check for escalation. Your edge is speed; your danger is making partners fear the solution.",
+  startStats: { ...(FACTIONS as AnyRecord).us_dem.startStats, credibility: 74, domestic: 60, coalition: 62, resolve: 74, chest: 72 },
 };
 
 const SCENARIOS = {
@@ -97,6 +403,35 @@ const SCENARIOS = {
   ],
 };
 
+const FABLE_SCENARIO_EXPANSIONS: AnyRecord = {
+  us_dem: [
+    { a: 1, t: "Progressive Caucus Demands a War Powers Pledge", b: "A bloc of House progressives will support emergency funding only if the White House promises no kinetic action without either allied supermajority support or a UN vote. INDOPACOM warns that legal caution could become operational paralysis.", i: "The Fable reference framed this as the domestic price of coalition leadership: legitimacy buys endurance, but every guardrail slows deterrence.", c: [{ l: "Accept a five-ally consensus rule", tag: "DIP", e: { domestic: 10, coalition: 7, global: 5, military: -4, credibility: 4 }, o: "The supplemental survives. The war room gets constraints, but allied capitals trust the process.", type: "good" }, { l: "Keep presidential freedom of action", tag: "MIL", e: { military: 9, resolve: 8, domestic: -14, coalition: -4, credibility: 2 }, o: "The fleet gets speed. Congress gets angry. Cable news gets the rest of the evening.", type: "neutral" }, { l: "Trade the pledge for a larger funding bill", tag: "FIN", e: { chest: 8, military: 6, domestic: 5, credibility: -3 }, o: "A messy bargain passes. The footnotes are ugly, but the ships get fuel.", type: "neutral" }] },
+    { a: 3, t: "War-Risk Insurance Freezes Commercial Lift", b: "Underwriters have withdrawn cover from civilian hulls entering the Western Pacific. Most of your logistics rides commercial ships. Without a guarantee, ammunition and parts sit safely on the wrong side of the ocean.", i: "Fable's logistics pool makes the point cleanly: money can solve logistics, but only if you spend before the shortage becomes readiness collapse.", c: [{ l: "State indemnity guarantee for critical cargo", tag: "FIN", e: { chest: -8, supply: 9, fuel: 4, coalition: 3 }, o: "The state becomes insurer of last resort. Hulls sail again, and accountants start sweating.", type: "good" }, { l: "Naval escort corridors", tag: "LOG", e: { supply: 7, military: 4, fuel: -5, global: -3 }, o: "Grey hulls bracket civilian shipping. It works, and everyone can see it working.", type: "neutral" }, { l: "Defer resupply and preserve cash", tag: "LOG", e: { supply: -9, military: -5, chest: 5 }, o: "You saved money by spending readiness. That bill comes due faster than expected.", type: "bad" }] },
+  ],
+  china: [
+    { a: 1, t: "Politburo 4-3", b: "The Standing Committee is split: four members demand that the timetable hold regardless of cost, three want an off-ramp before sanctions bite. A leak would turn policy disagreement into a test of Xi's authority.", i: "The reference version gives China a race-against-time opening with real internal pressure, not just external deterrence.", c: [{ l: "Hold the timetable and tighten discipline", tag: "POL", e: { politburo: 8, resolve: 9, domestic: 5, economy: -6, global: -5 }, o: "The room falls in line. Markets do not. Nobody mistakes resolve for comfort.", type: "neutral" }, { l: "Authorize a private off-ramp channel", tag: "DIP", e: { politburo: -5, credibility: 6, global: 8, economy: 4, pla: -4 }, o: "Moderates breathe. Theater commanders complain. The exit door exists, quietly.", type: "good" }, { l: "Leak hawkish unity to frighten Taipei", tag: "INT", e: { credibility: 5, pla: 6, global: -9, economy: -4 }, o: "The leak lands. It also convinces investors that Beijing is choosing pain.", type: "neutral" }] },
+    { a: 4, t: "Strike Window Over Dongsha", b: "Theater command asks permission to neutralize a radar complex and associated air-defense batteries. The military case is clean; the civilian-harm estimate is not.", i: "Adapted from Fable's strike council idea: a strike choice should be tempting, costly, and legible.", c: [{ l: "Authorize full strike package", tag: "STR", strike: true, e: { military: 18, pla: 8, global: -18, economy: -7, fuel: -5 }, o: "The corridor opens by force. Every foreign ministry in the region starts drafting at once.", type: "neutral" }, { l: "Cyber and electronic attack only", tag: "INT", e: { military: 8, credibility: 4, global: -3, pla: -2 }, o: "The screens go dark without craters. The army calls it half-measure; diplomats call it useful.", type: "good" }, { l: "Delay for a ceasefire probe", tag: "DIP", e: { global: 8, economy: 4, military: -6, pla: -6 }, o: "The window narrows. The room calms. Nobody is sure which mattered more.", type: "neutral" }] },
+  ],
+  russia: [
+    { a: 1, t: "The Neutrality Auction", b: "Beijing offers a vast energy contract for neutrality-plus. Washington hints at phased sanctions relief for genuine restraint. Both sides think they are the only bidder.", i: "Russia's best Fable material is transactional: the player should feel the leverage and the danger of getting caught selling it twice.", c: [{ l: "Play both bids quietly", tag: "FIN", e: { economy: 10, oligarch: 8, credibility: -5, nato: 6 }, o: "The auction works until someone reads the other invoice.", type: "neutral" }, { l: "Take China's energy contract", tag: "ECO2", e: { economy: 15, chest: 8, nato: 10, global: -6 }, o: "Pipelines become policy. Europe notices the signature before the ink dries.", type: "neutral" }, { l: "Trade restraint for sanctions relief", tag: "DIP", e: { economy: 7, credibility: 9, nato: -8, oligarch: 3 }, o: "Washington hates rewarding you. That is how you know the offer has value.", type: "good" }] },
+    { a: 3, t: "Arctic Convoy Shadowed", b: "A Russian fuel convoy bound for Chinese ports is being shadowed by a US submarine. Insurance rates surge, Beijing demands an escort, and the Kremlin sees both revenue and risk.", i: "A logistics event with Russian flavor: the convoy is cash flow, leverage, and a tripwire.", c: [{ l: "Escort openly with Pacific Fleet ships", tag: "MIL", e: { economy: 8, credibility: 6, nato: 8, fuel: -3 }, o: "The convoy arrives under a flag show. NATO planners add another red line to the board.", type: "neutral" }, { l: "Pause convoy and demand a premium", tag: "FIN", e: { chest: 10, economy: 4, credibility: -3, oligarch: 5 }, o: "Beijing pays for certainty. The delay says Moscow still controls the tap.", type: "good" }, { l: "Cancel and posture as mediator", tag: "DIP", e: { global: 9, credibility: 8, economy: -8, oligarch: -6 }, o: "The peacemaker costume fits poorly, but the room still lets you in.", type: "neutral" }] },
+  ],
+  north_korea: [
+    { a: 1, t: "Food for Quiet", b: "Washington offers grain and limited sanctions relief if Pyongyang stays quiet. Beijing offers fuel and missile technology if you coordinate pressure. General Pak is counting corps commanders.", i: "Fable's North Korea opening is a survival bargain with coup risk under the table.", c: [{ l: "Accept food through a deniable channel", tag: "DIP", e: { food: 14, economy: 5, kim: -4, credibility: 3 }, o: "The warehouses fill. The generals ask why the Americans are feeding the nation.", type: "neutral" }, { l: "Take Beijing's fuel and missile package", tag: "MIL", e: { fuel: 14, military: 9, kim: 5, global: -8, food: -3 }, o: "Launch crews cheer. Farmers do not.", type: "neutral" }, { l: "Play both sides and purge Pak's network", tag: "POL", e: { kim: 12, domestic: -6, military: 5, food: -5, credibility: -4 }, o: "The palace is quieter by dawn. So are several barracks.", type: "bad" }] },
+    { a: 4, t: "Missile Over Japan", b: "A Hwasong launch path over Japan would prove relevance, raise your price, and risk pulling US bombers away from Taiwan. It would also make every ally in the region less patient.", i: "War/strike text adapted from Fable: escalation as bargaining, not just spectacle.", c: [{ l: "Launch over Japan at high altitude", tag: "STR", strike: true, e: { military: 12, kim: 8, global: -14, food: -6, economy: -4 }, o: "The missile flies. Sirens answer. Your price rises, and so does the chance of a mistake.", type: "neutral" }, { l: "Conduct a coastal engine test instead", tag: "MIL", e: { military: 5, kim: 3, global: -4 }, o: "Enough signal for the generals. Not enough to empty Tokyo shelters.", type: "good" }, { l: "Announce restraint in exchange for aid verification", tag: "DIP", e: { food: 10, credibility: 6, global: 6, kim: -3 }, o: "Aid agencies enter under watch. Restraint becomes a commodity.", type: "good" }] },
+  ],
+  asean: [
+    { a: 1, t: "Rotating Chair, Splitting Bloc", b: "Philippines and Vietnam want open US alignment. Malaysia and Indonesia want neutrality. Singapore is playing both boards. A leaked draft says ASEAN has forty-eight hours before members cut separate deals.", i: "This preserves the current ASEAN survival mode while importing Fable's sharper bloc-fracture pressure.", c: [{ l: "Emergency leaders summit with binding communique", tag: "DIP", e: { unity: 15, credibility: 8, economy: -3, malacca: 4 }, o: "Ten leaders stay in the room long enough to remember why ASEAN exists.", type: "good" }, { l: "Let members pursue bilateral security deals", tag: "DIP", e: { military: 8, unity: -12, economy: 3, credibility: -6 }, o: "Everyone gets flexibility. The bloc gets thinner.", type: "neutral" }, { l: "Declare strict neutrality and bar foreign basing", tag: "POL", e: { unity: 6, global: 5, military: -6, malacca: -4 }, o: "Neutrality calms some capitals and terrifies others.", type: "neutral" }] },
+    { a: 3, t: "Currency Defense or Yuan Swaps", b: "Ringgit, rupiah, peso, and dong are all under pressure. China is offering bilateral yuan swap lines with political strings. The IMF can help, but not quickly enough to save every cabinet.", i: "Financial market event adapted from Fable's ASEAN currency crisis.", c: [{ l: "Create an ASEAN currency defense fund", tag: "FIN", e: { unity: 18, credibility: 10, economy: -4, chest: -8, malacca: 4 }, o: "Singapore and Thailand anchor the fund. ASEAN looks expensive, serious, and alive.", type: "good" }, { l: "Accept neutral IMF emergency SDRs", tag: "FIN", e: { economy: 8, global: 8, unity: 6, credibility: 4 }, o: "Clean, multilateral, slower than panic. Good enough to keep ministers seated.", type: "good" }, { l: "Let members take yuan swaps individually", tag: "FIN", e: { economy: 9, unity: -8, credibility: -6, malacca: -5 }, o: "Currencies stabilize while sovereignty leaks sideways.", type: "neutral" }] },
+    { a: 4, t: "PLAN Enters the Malacca Approach", b: "A Chinese surface group is approaching southern Malacca. Singapore is at combat alert, Indonesia is mobilizing, and Malaysia is waiting for cabinet authorization.", i: "This is the strongest Fable ASEAN military beat: the chokepoint becomes the board.", c: [{ l: "Joint ASEAN-US escort coalition", tag: "MIL", e: { military: 14, malacca: 16, credibility: 9, unity: -5, economy: -8 }, o: "The ships form up. China slows. ASEAN has become a hard-power sentence.", type: "good" }, { l: "UNCLOS filing plus emergency notification regime", tag: "DIP", e: { credibility: 12, global: 10, malacca: 9, unity: 5 }, o: "Law moves faster than anyone expected. The transit is now politically expensive.", type: "good" }, { l: "Allow transit to avoid market panic", tag: "ECO2", e: { economy: 5, malacca: -12, credibility: -10, unity: -6 }, o: "Markets exhale. Sovereignty does not.", type: "bad" }] },
+  ],
+  un: [
+    { a: 1, t: "Security Council Deadlock", b: "The first emergency session collapses into veto threats. Aid agencies need access, Taiwan wants recognition language, China wants sovereignty language, and Washington wants time.", i: "UN play is about threading legitimacy through impossible wording.", c: [{ l: "Draft humanitarian-only language", tag: "HUM", e: { hum: 10, p5: 4, global: 7, credibility: 4 }, o: "Nobody loves the text. That is why it passes the first procedural hurdle.", type: "good" }, { l: "Name aggression directly", tag: "POL", e: { credibility: 9, global: 4, p5: -10, hum: -3 }, o: "The speech is quoted everywhere. The convoy still waits.", type: "neutral" }, { l: "Move talks to a closed Geneva format", tag: "DIP", e: { p5: 8, credibility: 5, global: 5, hum: -2 }, o: "The cameras leave. The bargaining starts.", type: "good" }] },
+    { a: 2, t: "Relief Corridor Bargain", b: "WFP, WHO, and ICRC can move supplies if both sides accept a notification corridor. The military commands fear it will become an intelligence channel.", i: "Logistics with UN flavor: convoys are not just supplies, they are legitimacy in motion.", c: [{ l: "Publish corridor manifests in real time", tag: "LOG", e: { hum: 13, credibility: 8, p5: 3, supply: 5 }, o: "Transparency lowers suspicion. It also makes every delay visible.", type: "good" }, { l: "Use neutral ASEAN ports as staging hubs", tag: "LOG", e: { hum: 10, global: 8, supply: 7, chest: -4 }, o: "Singapore and Jakarta become the humanitarian hinge of the crisis.", type: "good" }, { l: "Accept military inspection at both ends", tag: "MIL", e: { p5: 7, hum: -4, credibility: -3 }, o: "The corridor opens late and narrow. Every box has a witness.", type: "neutral" }] },
+    { a: 5, t: "Ceasefire Window", b: "After weeks of pressure, both sides want a pause they can deny wanting. A monitored ceasefire could work if the UN can supply observers fast enough.", i: "Imported from Fable's endgame pool: ceasefire should be a phase, not a cutscene.", c: [{ l: "Deploy observer mission with ASEAN monitors", tag: "DIP", e: { credibility: 14, global: 12, hum: 8, p5: 4, chest: -5 }, o: "The mission is thin but real. A pause becomes a structure.", type: "good" }, { l: "Demand signatures before observers move", tag: "POL", e: { credibility: 6, p5: -5, hum: -6 }, o: "Legally tidy. Operationally late.", type: "bad" }, { l: "Accept ambiguous letters of assurance", tag: "DIP", e: { global: 10, hum: 9, credibility: -2, p5: 5 }, o: "The paperwork is ugly. The guns get quieter.", type: "neutral" }] },
+  ],
+};
+
 const SUDDEN = [
   { id: "typhoon", icon: "🌀", t: "Super Typhoon Maksa — Cat 5", d: "Taiwan Strait impassable 72hrs. All naval ops suspended. Supply convoys halted.", e: { military: -8, stability: -5, economy: -3, fuel: -5 } },
   { id: "iran_hormuz", icon: "🛢️", t: "Iran Activates — Hormuz Warning Shots", d: "Iran naval assets near Hormuz. Oil spikes $35/bbl. 35% of world LNG at risk.", e: { economy: -12, fuel: -8, supply: -6 } },
@@ -112,34 +447,103 @@ const SUDDEN = [
   { id: "oil_spike", icon: "🛢️", t: "Oil Reaches $200/barrel — Global Recession Imminent", d: "Brent crude hits $200/bbl. IMF declares global recession has begun. Emergency G20 called.", e: { economy: -20, fuel: -10, chest: -8, stability: -10 } },
 ];
 
+const SUDDEN_CRISIS_EFFECTS: AnyRecord = {
+  typhoon: { shippingInsuranceCost: 8, foodInflation: 5, humanitarianDamage: 3 },
+  iran_hormuz: { oilShock: 16, shippingInsuranceCost: 6, financialContagion: 4 },
+  market: { financialContagion: 16, mediaPanic: 8, publicTrust: -5 },
+  nk_test: { escalationLevel: 8, nuclearRisk: 12, mediaPanic: 6 },
+  defect: { cyberDisruption: 3, mediaPanic: -3, allianceCohesion: 3 },
+  tsmc: { semiconductorSupply: -18, financialContagion: 8, mediaPanic: 5 },
+  resupply_fail: { shippingInsuranceCost: 10, escalationLevel: 5, warWeariness: 4 },
+  deepfake: { cyberDisruption: 16, mediaPanic: 14, publicTrust: -8, nuclearRisk: 4 },
+  japan_elect: { allianceCohesion: -12, globalStability: -5, mediaPanic: 5 },
+  supply_interdict: { escalationLevel: 6, shippingInsuranceCost: 7, oilShock: 4 },
+  russia_escalate: { escalationLevel: 10, nuclearRisk: 7, allianceCohesion: -5 },
+  oil_spike: { oilShock: 18, financialContagion: 10, foodInflation: 6, globalStability: -6 },
+};
+
+function suddenEligible(e, crisis: StatMap) {
+  if (e.id === "oil_spike") return crisis.oilShock >= 45 || crisis.financialContagion >= 50;
+  if (e.id === "market") return crisis.financialContagion >= 38 || crisis.mediaPanic >= 45;
+  if (e.id === "tsmc") return crisis.semiconductorSupply <= 65 || crisis.cyberDisruption >= 42;
+  if (e.id === "deepfake") return crisis.cyberDisruption >= 35 || crisis.mediaPanic >= 50;
+  if (e.id === "nk_test" || e.id === "russia_escalate") return crisis.escalationLevel >= 38 || crisis.nuclearRisk >= 30;
+  if (e.id === "resupply_fail" || e.id === "supply_interdict") return crisis.shippingInsuranceCost >= 40 || crisis.escalationLevel >= 35;
+  if (e.id === "iran_hormuz") return crisis.oilShock >= 36 || crisis.escalationLevel >= 45;
+  return true;
+}
+
+function pickSuddenEvent(used: Set<string>, crisis: StatMap) {
+  const available = SUDDEN.filter(e => !used.has(e.id));
+  const reactive = available.filter(e => suddenEligible(e, crisis));
+  const pool = reactive.length ? reactive : available;
+  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+}
+
+const LIFE_BASE_STATS: StatMap = { cash: 52, debt: 28, monthlyIncome: 55, jobSecurity: 58, careerCapital: 45, familyStability: 58, health: 72, stress: 34, morale: 62, foodSupply: 50, fuelAccess: 48, medicineAccess: 54, housingSecurity: 58, internetAccess: 72, legalRisk: 18, migrationReadiness: 34, reputation: 50, emergencyPreparedness: 42 };
 const LIFE_SPAWNS: AnyRecord = {
-  singapore: { id: "singapore", name: "Singapore", note: "Orderly, expensive, heavily watched.", stats: { health: 76, morale: 68, money: 58, supplies: 62, family: 64, reputation: 58, risk: 28, debt: 22 }, markets: { food: 112, fuel: 138, rent: 125, medicine: 118, usd: 104, jobs: 72 } },
-  taipei: { id: "taipei", name: "Taipei", note: "Closest to the storm, best information, highest daily risk.", stats: { health: 68, morale: 62, money: 46, supplies: 48, family: 70, reputation: 55, risk: 56, debt: 28 }, markets: { food: 138, fuel: 168, rent: 116, medicine: 142, usd: 118, jobs: 48 } },
-  manila: { id: "manila", name: "Manila", note: "Family networks matter. Prices move fast.", stats: { health: 70, morale: 66, money: 42, supplies: 45, family: 76, reputation: 58, risk: 44, debt: 34 }, markets: { food: 128, fuel: 152, rent: 104, medicine: 126, usd: 112, jobs: 55 } },
-  jakarta: { id: "jakarta", name: "Jakarta", note: "Fuel, logistics, and informal markets dominate.", stats: { health: 72, morale: 64, money: 48, supplies: 52, family: 66, reputation: 54, risk: 38, debt: 30 }, markets: { food: 122, fuel: 160, rent: 98, medicine: 121, usd: 109, jobs: 58 } },
+  kl_pj: { id: "kl_pj", name: "Kuala Lumpur/PJ", note: "Family obligations, car dependence, and price shocks all matter.", stats: { cash: -2, debt: 4, fuelAccess: -5, familyStability: 5, housingSecurity: 3 }, markets: { food: 116, fuel: 144, rent: 112, medicine: 116, usd: 111, jobs: 60 } },
+  singapore: { id: "singapore", name: "Singapore", note: "Orderly, expensive, resilient, and heavily watched.", stats: { cash: 8, monthlyIncome: 8, housingSecurity: -6, internetAccess: 8, legalRisk: -4 }, markets: { food: 112, fuel: 138, rent: 132, medicine: 118, usd: 104, jobs: 72 } },
+  taipei: { id: "taipei", name: "Taipei", note: "Closest to the storm, best information, highest daily risk.", stats: { stress: 14, migrationReadiness: 8, foodSupply: -7, fuelAccess: -9, morale: -5 }, markets: { food: 138, fuel: 168, rent: 116, medicine: 142, usd: 118, jobs: 48 } },
+  hong_kong: { id: "hong_kong", name: "Hong Kong", note: "Finance nerves, migration channels, and legal exposure collide.", stats: { cash: 5, careerCapital: 6, legalRisk: 7, migrationReadiness: 8, housingSecurity: -7 }, markets: { food: 126, fuel: 150, rent: 148, medicine: 128, usd: 112, jobs: 58 } },
+  shanghai: { id: "shanghai", name: "Shanghai/Shenzhen", note: "Factory chains, censorship risk, and tech layoffs move fast.", stats: { monthlyIncome: 8, internetAccess: -6, legalRisk: 8, jobSecurity: -5, careerCapital: 8 }, markets: { food: 122, fuel: 142, rent: 130, medicine: 124, usd: 116, jobs: 54 } },
+  manila: { id: "manila", name: "Manila", note: "Family networks matter. Prices move fast.", stats: { cash: -8, familyStability: 9, debt: 8, foodSupply: -4, reputation: 3 }, markets: { food: 128, fuel: 152, rent: 104, medicine: 126, usd: 112, jobs: 55 } },
+  jakarta: { id: "jakarta", name: "Jakarta", note: "Fuel, logistics, and informal markets dominate.", stats: { fuelAccess: -7, foodSupply: -3, legalRisk: 3, emergencyPreparedness: 4 }, markets: { food: 122, fuel: 160, rent: 98, medicine: 121, usd: 109, jobs: 58 } },
+  tokyo: { id: "tokyo", name: "Tokyo", note: "Safe infrastructure, expensive rent, and Korea/Taiwan anxiety.", stats: { cash: 3, housingSecurity: -4, emergencyPreparedness: 6, stress: 5 }, markets: { food: 118, fuel: 148, rent: 138, medicine: 116, usd: 108, jobs: 66 } },
+  seoul: { id: "seoul", name: "Seoul", note: "Cyber alerts and missile anxiety shadow a strong job market.", stats: { internetAccess: 5, stress: 8, migrationReadiness: 4, jobSecurity: 2 }, markets: { food: 120, fuel: 146, rent: 124, medicine: 118, usd: 109, jobs: 64 } },
+  dubai: { id: "dubai", name: "Dubai", note: "Cash opportunity, visa precarity, and oil money in the same room.", stats: { cash: 10, monthlyIncome: 10, legalRisk: 4, migrationReadiness: 10, familyStability: -4 }, markets: { food: 124, fuel: 112, rent: 142, medicine: 124, usd: 101, jobs: 70 } },
+  london: { id: "london", name: "London", note: "Finance exposure, high rent, and strong institutions.", stats: { careerCapital: 9, cash: 4, housingSecurity: -9, debt: 4, legalRisk: -2 }, markets: { food: 124, fuel: 156, rent: 154, medicine: 112, usd: 107, jobs: 62 } },
+  new_york: { id: "new_york", name: "New York", note: "Markets, media panic, rent, and career upside are all amplified.", stats: { careerCapital: 12, cash: 5, debt: 7, housingSecurity: -10, stress: 7 }, markets: { food: 126, fuel: 150, rent: 160, medicine: 130, usd: 100, jobs: 66 } },
 };
 
 const LIFE_ROLES: AnyRecord = {
-  nurse: { id: "nurse", name: "Emergency Nurse", note: "Trusted, exhausted, exposed to shortages.", stats: { health: -4, morale: -2, money: 4, supplies: 2, family: -3, reputation: 12, risk: 8, debt: -2 }, event: "Hospital triage board asks you to take another double shift.", roleChoice: { l: "Work the double shift and trade favors for medicine", tag: "CARE", e: { health: -7, morale: -4, money: 5, supplies: 8, reputation: 9, risk: 5 }, m: { medicine: -2 }, o: "You are exhausted, but your name opens pharmacy doors." } },
-  trader: { id: "trader", name: "Market Trader", note: "Fast cash, fast enemies.", stats: { health: 0, morale: 2, money: 12, supplies: -4, family: -2, reputation: -5, risk: 10, debt: -4 }, event: "A broker offers advance access to tomorrow's fuel allocation list.", roleChoice: { l: "Buy the allocation tip and flip fuel contracts", tag: "DEAL", e: { money: 14, reputation: -8, risk: 10, debt: -4 }, m: { fuel: 6, usd: 2 }, o: "The trade pays, but people notice who profited." } },
-  parent: { id: "parent", name: "Single Parent", note: "Every decision passes through the family table.", stats: { health: 2, morale: 0, money: -6, supplies: 5, family: 14, reputation: 3, risk: -3, debt: 8 }, event: "Your child's school closes and asks families to form rotating care groups.", roleChoice: { l: "Organize a care circle with neighbors", tag: "HOME", e: { family: 10, reputation: 8, morale: 4, money: -4, supplies: -3 }, m: { jobs: -2 }, o: "The household gets harder to run, but no one is alone." } },
-  analyst: { id: "analyst", name: "Risk Analyst", note: "Information is your edge. Overthinking is your tax.", stats: { health: -2, morale: -3, money: 9, supplies: 0, family: -4, reputation: 5, risk: -2, debt: -5 }, event: "A client wants a private evacuation probability model by midnight.", roleChoice: { l: "Sell the model and reserve a foreign account", tag: "INFO", e: { money: 11, morale: -4, family: -5, reputation: 3, risk: -4 }, m: { usd: 4 }, o: "Your dashboard is cold, accurate, and profitable." } },
+  finance: { id: "finance", name: "Finance Worker", sector: "Finance", income: 74, note: "Markets pay well until they do not.", stats: { cash: 10, monthlyIncome: 14, jobSecurity: -4, stress: 8, careerCapital: 8, debt: 4 }, event: "Your desk is asked to price Taiwan exposure before markets reopen.", roleChoice: { l: "Hedge client books and ask for crisis bonus", tag: "FIN", e: { cash: 10, careerCapital: 6, stress: 6, reputation: 2 }, m: { usd: 3 }, o: "You look useful when everyone else looks scared." } },
+  tech: { id: "tech", name: "Tech Worker", sector: "Technology", income: 68, note: "Semiconductors and cloud outages decide your week.", stats: { monthlyIncome: 10, internetAccess: 8, careerCapital: 9, jobSecurity: -2, stress: 3 }, event: "Your product lead freezes the roadmap and asks who can keep systems alive.", roleChoice: { l: "Volunteer for crisis reliability work", tag: "CYB", e: { careerCapital: 9, jobSecurity: 5, stress: 6, internetAccess: 2 }, m: { jobs: 2 }, o: "The pager owns your night, but leadership learns your name." } },
+  cyber: { id: "cyber", name: "Cybersecurity Consultant", sector: "Cybersecurity", income: 72, note: "Every bank and port suddenly wants you.", stats: { monthlyIncome: 12, careerCapital: 10, stress: 6, legalRisk: 3, internetAccess: 7 }, event: "A bank asks for an emergency incident-response retainer by midnight.", roleChoice: { l: "Take the retainer and sleep later", tag: "CYB", e: { cash: 12, careerCapital: 8, stress: 8, reputation: 4 }, m: { jobs: 3 }, o: "You become expensive because the alternative is worse." } },
+  compliance: { id: "compliance", name: "Bank Risk/Compliance Officer", sector: "Banking", income: 64, note: "Sanctions, liquidity, and regulators all land on your desk.", stats: { monthlyIncome: 8, jobSecurity: 7, stress: 7, legalRisk: -2, careerCapital: 5 }, event: "Regulators request an emergency sanctions and liquidity attestation.", roleChoice: { l: "Build the control room spreadsheet yourself", tag: "FIN", e: { jobSecurity: 8, careerCapital: 6, stress: 7, legalRisk: -4 }, m: { jobs: 1 }, o: "It is dull, vital, and politically protective." } },
+  civil: { id: "civil", name: "Civil Servant", sector: "Government", income: 50, note: "Stable pay, public pressure, low upside.", stats: { monthlyIncome: -2, jobSecurity: 12, reputation: 5, legalRisk: -4, stress: 3 }, event: "Your ministry opens a public hotline for shortages and evacuation rumors.", roleChoice: { l: "Take hotline command and coordinate agencies", tag: "POL", e: { reputation: 8, jobSecurity: 5, stress: 6, morale: 3 }, m: { jobs: 1 }, o: "People yell because they think someone is finally listening." } },
+  port: { id: "port", name: "Port/Logistics Worker", sector: "Logistics", income: 54, note: "Container delays become your personal economy.", stats: { monthlyIncome: 2, jobSecurity: 4, fuelAccess: -2, emergencyPreparedness: 5, health: -2 }, event: "A container backlog turns into an overnight overtime call.", roleChoice: { l: "Work the port surge and secure supply favors", tag: "LOG", e: { cash: 7, foodSupply: 7, fuelAccess: 4, stress: 5, health: -3 }, m: { food: -2 }, o: "The work is hard, but your pantry gets less theoretical." } },
+  nurse: { id: "nurse", name: "Nurse", sector: "Healthcare", income: 52, note: "Trusted, exhausted, exposed to shortages.", stats: { health: -4, stress: 9, monthlyIncome: 1, medicineAccess: 7, reputation: 12, jobSecurity: 10 }, event: "Hospital triage asks you to take another double shift.", roleChoice: { l: "Work the double shift and trade favors for medicine", tag: "CARE", e: { health: -7, stress: 8, cash: 5, medicineAccess: 8, reputation: 9 }, m: { medicine: -2 }, o: "You are exhausted, but your name opens pharmacy doors." } },
+  business: { id: "business", name: "Small Business Owner", sector: "Retail", income: 48, note: "Cashflow is survival. Reputation is collateral.", stats: { cash: 5, debt: 10, jobSecurity: -8, reputation: 6, stress: 7 }, event: "Suppliers demand cash up front before the next shipment.", roleChoice: { l: "Prepay inventory and raise prices carefully", tag: "DEAL", e: { cash: -8, foodSupply: 5, reputation: -2, careerCapital: 5, stress: 4 }, m: { food: 3 }, o: "You keep shelves stocked and customers suspicious." } },
+  journalist: { id: "journalist", name: "Journalist", sector: "Media", income: 42, note: "Truth, access, and legal risk wrestle daily.", stats: { monthlyIncome: -6, careerCapital: 8, reputation: 8, legalRisk: 8, stress: 5 }, event: "An editor wants verified footage from a restricted port zone.", roleChoice: { l: "Verify the story through safe sources", tag: "INT", e: { reputation: 8, careerCapital: 5, legalRisk: -2, stress: 4 }, m: { usd: 1 }, o: "You publish slower, cleaner, and harder to discredit." } },
+  student: { id: "student", name: "Student", sector: "Education", income: 28, note: "Low cash, high optionality, fragile housing.", stats: { cash: -12, debt: 12, monthlyIncome: -18, careerCapital: 8, migrationReadiness: 6, housingSecurity: -4 }, event: "Your university shifts classes online and opens emergency aid forms.", roleChoice: { l: "Apply for aid and build a remote portfolio", tag: "WORK", e: { cash: 5, careerCapital: 8, internetAccess: 4, stress: 3 }, m: { jobs: 1 }, o: "You turn disruption into proof that you can work anywhere." } },
+  migrant: { id: "migrant", name: "Migrant Worker", sector: "Essential Labor", income: 34, note: "Remittances, documents, and housing risk dominate.", stats: { cash: -8, monthlyIncome: -10, familyStability: 10, housingSecurity: -8, legalRisk: 8, migrationReadiness: -4 }, event: "Your dorm manager warns that work permits may be checked after curfew.", roleChoice: { l: "Avoid the raid and protect documents", tag: "HOME", e: { legalRisk: -8, stress: 5, cash: -3, migrationReadiness: 5 }, m: { jobs: -1 }, o: "You lose a shift and keep your papers." } },
+  crypto: { id: "crypto", name: "Crypto Speculator", sector: "Crypto", income: 44, note: "Volatility can save you or eat the floor.", stats: { cash: 8, debt: 6, monthlyIncome: -6, legalRisk: 6, stress: 8, careerCapital: -2 }, event: "A stablecoin depeg creates a violent arbitrage window.", roleChoice: { l: "Arbitrage the depeg with strict stop-loss", tag: "FIN", e: { cash: 12, stress: 7, legalRisk: 4, reputation: -3 }, m: { usd: 4 }, o: "The trade works because you exit before becoming the exit." } },
 };
 
 const LIFE_PHILOSOPHIES: AnyRecord = {
-  protector: { id: "protector", name: "Protect the People Close to Me", stats: { family: 10, supplies: 4, money: -4, reputation: 2 }, note: "Family and friends before upside." },
-  opportunist: { id: "opportunist", name: "Chaos Is a Ladder", stats: { money: 10, reputation: -6, risk: 8, morale: 2 }, note: "Find the spread, take the spread." },
-  civic: { id: "civic", name: "Hold the Community Together", stats: { reputation: 10, morale: 4, supplies: -3, risk: 3 }, note: "Mutual aid beats panic." },
-  exit: { id: "exit", name: "Prepare an Exit Route", stats: { risk: -6, money: -2, family: -2, supplies: 8 }, note: "Keep documents ready and options open." },
+  protector: { id: "protector", name: "Protect the People Close to Me", stats: { familyStability: 10, foodSupply: 4, cash: -4, reputation: 2, emergencyPreparedness: 4 }, note: "Family and friends before upside." },
+  opportunist: { id: "opportunist", name: "Chaos Is a Ladder", stats: { cash: 10, reputation: -6, legalRisk: 7, morale: 2, careerCapital: 4 }, note: "Find the spread, take the spread." },
+  civic: { id: "civic", name: "Hold the Community Together", stats: { reputation: 10, morale: 4, foodSupply: -3, stress: 3, familyStability: 3 }, note: "Mutual aid beats panic." },
+  exit: { id: "exit", name: "Prepare an Exit Route", stats: { migrationReadiness: 14, cash: -2, familyStability: -2, emergencyPreparedness: 8, legalRisk: -2 }, note: "Keep documents ready and options open." },
 };
 
 const LIFE_LOCAL_EVENTS: AnyRecord[] = [
-  { t: "Rolling Blackout", d: "District power cuts expand from two hours to all evening. Refrigerated food and remote work are both at risk.", e: { morale: -4, supplies: -3 }, m: { fuel: 3, food: 2 } },
-  { t: "Bank Queue Shock", d: "ATMs limit withdrawals. Rumors spread that two regional banks are delaying transfers.", e: { morale: -3, money: -3, risk: 3 }, m: { usd: 5, jobs: -2 } },
-  { t: "Fuel Ration Line", d: "Taxi fleets and delivery riders queue overnight. Police warn against hoarding.", e: { supplies: -2, risk: 4 }, m: { fuel: 8, food: 2 } },
-  { t: "Clinic Shortage", d: "Insulin, antibiotics, and blood pressure medicine are suddenly hard to find.", e: { health: -4, morale: -2 }, m: { medicine: 7 } },
-  { t: "Port Delay", d: "Container inspections triple. Fresh goods sit in port while prices jump in wet markets.", e: { supplies: -5, money: -2 }, m: { food: 6, jobs: -1 } },
-  { t: "Curfew Rumor", d: "The government denies a curfew while quietly putting riot police near transit hubs.", e: { morale: -3, risk: 5 }, m: { rent: 1, usd: 2 } },
+  { t: "Rolling Blackout", d: "District power cuts expand from two hours to all evening. Refrigerated food and remote work are both at risk.", e: { morale: -4, foodSupply: -3, internetAccess: -6 }, m: { fuel: 3, food: 2 } },
+  { t: "Bank Queue Shock", d: "ATMs limit withdrawals. Rumors spread that two regional banks are delaying transfers.", e: { morale: -3, cash: -3, legalRisk: 2 }, m: { usd: 5, jobs: -2 } },
+  { t: "Fuel Ration Line", d: "Taxi fleets and delivery riders queue overnight. Police warn against hoarding.", e: { fuelAccess: -7, stress: 4, foodSupply: -2 }, m: { fuel: 8, food: 2 } },
+  { t: "Clinic Shortage", d: "Insulin, antibiotics, and blood pressure medicine are suddenly hard to find.", e: { health: -4, morale: -2, medicineAccess: -8 }, m: { medicine: 7 } },
+  { t: "Port Delay", d: "Container inspections triple. Fresh goods sit in port while prices jump in wet markets.", e: { foodSupply: -5, cash: -2, jobSecurity: -2 }, m: { food: 6, jobs: -1 } },
+  { t: "Curfew Rumor", d: "The government denies a curfew while quietly putting police near transit hubs.", e: { morale: -3, legalRisk: 5, stress: 4 }, m: { rent: 1, usd: 2 } },
+  { t: "Evacuation Chat Flood", d: "Private chats fill with routes, visa agents, and bad information. The loudest advice is not the safest.", e: { migrationReadiness: 2, stress: 5, cash: -2 }, m: { usd: 3, rent: 2 } },
+  { t: "Community Aid Table", d: "Neighbors set up a shared supply table downstairs. It works only if enough people contribute.", e: { reputation: 3, morale: 2, foodSupply: -2 }, m: { food: -1 } },
+];
+
+const LIFE_ACTIONS: AnyRecord[] = [
+  { l: "Work overtime", tag: "WORK", strategy: "money", e: { cash: 10, monthlyIncome: 1, jobSecurity: 3, stress: 8, health: -4, familyStability: -3 }, m: { jobs: 1 }, o: "You trade body and time for cashflow." },
+  { l: "Negotiate debt holiday", tag: "FIN", strategy: "money", e: { cash: 4, debt: -9, reputation: -2, legalRisk: 2, stress: 3 }, m: { usd: 1 }, o: "You buy breathing room, but lenders remember." },
+  { l: "Emergency freelance sprint", tag: "WORK", strategy: "career", e: { cash: 8, careerCapital: 6, jobSecurity: 2, stress: 7, internetAccess: -3 }, m: { jobs: 1 }, o: "A short contract becomes both income and proof of competence." },
+  { l: "Build crisis skills", tag: "WORK", strategy: "career", e: { careerCapital: 11, jobSecurity: 4, cash: -3, stress: 4, internetAccess: -2 }, m: { jobs: 1 }, o: "It does not solve today, but it changes who can hire you tomorrow." },
+  { l: "Buy supplies", tag: "HOME", strategy: "supplies", e: { cash: -9, foodSupply: 11, medicineAccess: 4, emergencyPreparedness: 7 }, m: { food: 2, medicine: 1 }, o: "Your shelves look less dramatic and more useful." },
+  { l: "Repair home fallback kit", tag: "HOME", strategy: "supplies", e: { emergencyPreparedness: 10, housingSecurity: 4, fuelAccess: 3, cash: -6, morale: -1 }, m: { rent: 1 }, o: "The apartment becomes less fragile even if it is not comfortable." },
+  { l: "Help family logistics", tag: "CARE", strategy: "family", e: { cash: -6, familyStability: 12, morale: 4, reputation: 3, stress: 3 }, m: {}, o: "Someone close to you sleeps better tonight." },
+  { l: "Join community aid", tag: "CARE", strategy: "community", e: { reputation: 11, morale: 6, foodSupply: -4, stress: 3, familyStability: 4 }, m: { food: -1 }, o: "The network becomes part of your emergency kit." },
+  { l: "Take a real recovery day", tag: "HEAL", strategy: "health", e: { health: 10, stress: -12, morale: 5, cash: -5, jobSecurity: -3 }, m: {}, o: "You stop the slide before your body makes the decision for you." },
+  { l: "Clinic and medicine run", tag: "HEAL", strategy: "health", e: { health: 8, medicineAccess: 8, cash: -7, stress: 2, legalRisk: -1 }, m: { medicine: 2 }, o: "You spend money now to avoid paying with health later." },
+  { l: "Apply overseas", tag: "DIP", strategy: "migration", e: { migrationReadiness: 12, cash: -6, stress: 5, familyStability: -2, careerCapital: 2 }, m: { usd: 2 }, o: "Forms, scans, references, and one more possible door." },
+  { l: "Secure documents and exit cash", tag: "DIP", strategy: "migration", e: { migrationReadiness: 9, legalRisk: -4, emergencyPreparedness: 3, cash: -8, morale: -2 }, m: { usd: 2 }, o: "You reduce the chance that panic ruins the exit window." },
+  { l: "Grey-market supply deal", tag: "DEAL", strategy: "grey", e: { cash: -4, foodSupply: 10, fuelAccess: 8, legalRisk: 8, reputation: -4, stress: 5 }, m: { food: -2, fuel: -2 }, o: "It solves a real shortage by creating a different kind of exposure." },
+  { l: "Take risky opportunity", tag: "DEAL", strategy: "grey", e: { cash: 14, careerCapital: 5, stress: 9, legalRisk: 9, reputation: -4 }, m: { usd: 3 }, o: "It pays because not everyone would touch it." },
 ];
 
 const LIFE_LENGTHS = [14, 30, 45, 60];
@@ -192,15 +596,46 @@ const ENDINGS = {
     { cond: s => s.economy < 48, grade: "C", title: "Pyrrhic Neutrality", body: "The energy crisis, the rare earth disruption, the recession — you preserved your principles but your economy is shaken." },
     { cond: () => true, grade: "B-", title: "Managed Mediation", body: "The EU brokered a ceasefire but not a resolution. Brussels remains a second-tier actor in hard security." },
   ],
+  un: [
+    { cond: s => (s.hum || 0) > 78 && (s.p5 || 0) > 58 && s.credibility > 72, grade: "A", title: "The Room Still Matters", body: "The UN did not command fleets or markets, but it kept the room open long enough for convoys, monitors, and signatures to become possible. The ceasefire carries your stamp in every paragraph." },
+    { cond: s => (s.hum || 0) < 35, grade: "D", title: "Corridors Closed", body: "The diplomacy continued while the aid system failed. History remembers the speeches, but it counts the ships that never sailed." },
+    { cond: s => (s.p5 || 0) < 30, grade: "C-", title: "Veto Theatre", body: "The Security Council became a stage for great-power performance. Agencies improvised in the margins while the chamber proved smaller than the crisis." },
+    { cond: s => s.global > 82 && s.credibility > 68, grade: "B+", title: "Humanitarian Framework", body: "No one mistook it for peace, but the notification corridors, observer cells, and Geneva format outlived the fighting. That is how institutions survive bad decades." },
+    { cond: () => true, grade: "B-", title: "Useful Imperfection", body: "The UN remained flawed, slow, and necessary. The crisis was not solved in Turtle Bay, but enough doors stayed open for others to walk through." },
+  ],
 };
+(ENDINGS as AnyRecord).us_rep = [
+  { cond: s => (s.deterrence || 0) > 78 && (s.alliedAnxiety || 0) < 58 && (s.warMandate || 0) > 64, grade: "A", title: "Deterrence Doctrine", body: "The administration turned speed, force posture, and congressional mandate into a credible Pacific deterrent without breaking the alliance system." },
+  { cond: s => (s.alliedAnxiety || 0) > 76, grade: "C-", title: "Alliance Panic", body: "Deterrence became indistinguishable from escalation in allied capitals. Partners stayed close publicly and hedged privately." },
+  { cond: s => (s.hawk || 0) > 78 && (s.warMandate || 0) < 45, grade: "D", title: "Mandate Trap", body: "The hawks kept demanding more visible force, but the public mandate never caught up. The crisis became a domestic test of nerve." },
+  { cond: s => (s.deterrence || 0) > 72, grade: "B+", title: "Hard Line Held", body: "The crisis ended with deterrence credibility higher than it began, though allied anxiety remained the price of speed." },
+  { cond: () => true, grade: "B-", title: "Uneasy Strength", body: "The United States projected strength and avoided collapse, but the coalition will spend years deciding whether it was reassured or frightened." },
+];
 
-function getEnding(fid, st) {
+function getEnding(fid, st, context: AnyRecord = {}) {
   const list = ENDINGS[fid] || [];
-  return list.find(e => e.cond(st)) || list[list.length - 1] || { grade: "B", title: "Crisis Concluded", body: "The situation resolved. History will judge the choices made." };
+  const base = list.find(e => e.cond(st)) || list[list.length - 1] || { grade: "B", title: "Crisis Concluded", body: "The situation resolved. History will judge the choices made." };
+  const counts = context.decisionCounts || {};
+  const crisis = context.crisis || {};
+  const topCategory = Object.entries(counts).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+  const notes = [
+    topCategory && Number(topCategory[1]) > 0 ? `Your dominant playbook was ${topCategory[0]} (${topCategory[1]} decisions).` : "",
+    context.strikes ? `${context.strikes} strike decision${context.strikes === 1 ? "" : "s"} left a permanent escalation signature.` : "",
+    crisis.nuclearRisk >= 60 ? "Nuclear risk remained dangerously high at the close." : "",
+    crisis.humanitarianDamage >= 60 ? "Humanitarian damage became one of the defining costs of the crisis." : "",
+    crisis.allianceCohesion >= 70 ? "Alliance cohesion held strongly through the final act." : "",
+    crisis.publicTrust < 40 ? "Public trust was badly damaged by the endgame." : "",
+    factionEndingNote(fid, st),
+    fleetEndingNote(fid, context.fleets || []),
+    chainEndingNote(context.chains || []),
+  ].filter(Boolean).join(" ");
+  return { ...base, body: notes ? `${base.body} ${notes}` : base.body, context };
 }
 
 function buildQ(fid) {
-  const pool = SCENARIOS[fid] || [];
+  const scenarioBase = SCENARIOS[fid] || (fid === "us_rep" ? SCENARIOS.us_dem : []);
+  const expansionBase = FABLE_SCENARIO_EXPANSIONS[fid] || (fid === "us_rep" ? FABLE_SCENARIO_EXPANSIONS.us_dem : []);
+  const pool = [...scenarioBase, ...expansionBase];
   const byA = {};
   pool.forEach(s => { if (!byA[s.a]) byA[s.a] = []; byA[s.a].push(s); });
   const q = [];
@@ -209,7 +644,9 @@ function buildQ(fid) {
 }
 
 const lc = (v, max = 100) => Math.max(0, Math.min(max, Math.round(v)));
-const lifeStatMax = (k) => k === "money" || k === "debt" ? 160 : 100;
+const lifeRiskHigh = (k) => ["debt", "stress", "legalRisk"].includes(k);
+const lifeStatMax = (k) => ["cash", "debt", "monthlyIncome"].includes(k) ? 180 : 100;
+const lifeLabel = (k) => ({ cash: "Cash", debt: "Debt", monthlyIncome: "Monthly Income", jobSecurity: "Job Security", careerCapital: "Career Capital", familyStability: "Family Stability", health: "Health", stress: "Stress", morale: "Morale", foodSupply: "Food Supply", fuelAccess: "Fuel Access", medicineAccess: "Medicine Access", housingSecurity: "Housing Security", internetAccess: "Internet Access", legalRisk: "Legal Risk", migrationReadiness: "Migration Readiness", reputation: "Reputation", emergencyPreparedness: "Emergency Preparedness" }[k] || k);
 const lifeApplyStats = (s, e = {}) => {
   const n = { ...s };
   Object.entries(e).forEach(([k, v]) => { n[k] = lc((n[k] ?? 50) + Number(v), lifeStatMax(k)); });
@@ -224,47 +661,151 @@ function buildLifeProfile(draft) {
   const spawn = LIFE_SPAWNS[draft.spawn] || LIFE_SPAWNS.singapore;
   const role = LIFE_ROLES[draft.role] || LIFE_ROLES.nurse;
   const philosophy = LIFE_PHILOSOPHIES[draft.philosophy] || LIFE_PHILOSOPHIES.protector;
+  const roleBase = { monthlyIncome: role.income || 50, cash: Math.round((role.income || 50) * 0.8), debt: role.id === "student" ? 42 : role.id === "business" ? 46 : 24, familyStability: draft.philosophy === "protector" ? 68 : 55 };
+  const stats = lifeApplyStats(lifeApplyStats(lifeApplyStats(lifeApplyStats(LIFE_BASE_STATS, roleBase), spawn.stats), role.stats), philosophy.stats);
   return {
     ...draft,
     spawn,
     role,
     philosophy,
+    jobSector: role.sector,
+    startingCash: stats.cash,
+    debt: stats.debt,
+    monthlyIncome: stats.monthlyIncome,
+    familyObligation: stats.familyStability,
     length: Number(draft.length) || 30,
-    stats: lifeApplyStats(lifeApplyStats(spawn.stats, role.stats), philosophy.stats),
+    stats,
     markets: { ...spawn.markets },
   };
 }
-function buildLifeEvent(day, profile) {
+const mergeEffect = (base = {}, extra = {}) => {
+  const out = { ...base };
+  Object.entries(extra).forEach(([k, v]) => { out[k] = Number(out[k] || 0) + Number(v); });
+  return out;
+};
+const cloneLifeAction = (a: AnyRecord): AnyRecord => ({ ...a, e: { ...(a.e || {}) }, m: { ...(a.m || {}) } });
+const actionByStrategy = (strategy: string, alt = 0) => LIFE_ACTIONS.filter(a => a.strategy === strategy)[alt] || LIFE_ACTIONS.find(a => a.strategy === strategy) || LIFE_ACTIONS[0];
+const recoveryStrategiesFor = (stats: StatMap) => {
+  const needs = [
+    { strategy: "money", score: (stats.cash < 45 ? 90 - stats.cash : 0) + Math.max(0, stats.debt - 60) },
+    { strategy: "career", score: Math.max(0, 58 - stats.jobSecurity) + Math.max(0, 52 - stats.careerCapital) },
+    { strategy: "family", score: Math.max(0, 62 - stats.familyStability) + Math.max(0, 45 - stats.morale) },
+    { strategy: "health", score: Math.max(0, 72 - stats.health) + Math.max(0, stats.stress - 45) },
+    { strategy: "supplies", score: Math.max(0, 58 - stats.foodSupply) + Math.max(0, 55 - stats.fuelAccess) + Math.max(0, 55 - stats.medicineAccess) + Math.max(0, 50 - stats.emergencyPreparedness) },
+    { strategy: "migration", score: Math.max(0, 60 - stats.migrationReadiness) + Math.max(0, stats.legalRisk - 38) },
+    { strategy: "grey", score: Math.max(0, 45 - stats.cash) + Math.max(0, 45 - stats.foodSupply) + Math.max(0, 45 - stats.fuelAccess) },
+  ];
+  return needs.sort((a, b) => b.score - a.score).filter(n => n.score > 0).map(n => n.strategy);
+};
+function contextualizeLifeAction(action: AnyRecord, profile: AnyRecord, crisis: StatMap, stats: StatMap) {
+  const a = cloneLifeAction(action);
+  const role = profile.role?.id;
+  const city = profile.spawn?.id;
+  const philosophy = profile.philosophy?.id;
+  const expensiveCity = ["singapore", "hong_kong", "london", "new_york", "tokyo", "dubai"].includes(city);
+  const highFinance = (crisis.financialContagion || 0) > 48;
+  const highOil = (crisis.oilShock || 0) > 50;
+  const highCyber = (crisis.cyberDisruption || 0) > 45;
+  const highHumanitarian = (crisis.humanitarianDamage || 0) > 45;
+  if (["finance", "compliance", "crypto"].includes(role) && ["FIN", "DEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { cash: 3, careerCapital: 2, stress: 1 });
+  if (["tech", "cyber"].includes(role) && ["WORK", "CYB"].includes(a.tag)) a.e = mergeEffect(a.e, { careerCapital: 3, jobSecurity: 2, stress: 1 });
+  if (["nurse", "civil"].includes(role) && ["CARE", "HEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { reputation: 3, medicineAccess: role === "nurse" ? 3 : 0 });
+  if (role === "port" && ["HOME", "DEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { foodSupply: 3, fuelAccess: 2 });
+  if (role === "migrant" && a.strategy === "migration") a.e = mergeEffect(a.e, { legalRisk: -2, migrationReadiness: 3 });
+  if (expensiveCity && ["HOME", "DIP", "HEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { cash: -2 });
+  if (["taipei", "seoul", "hong_kong"].includes(city) && a.strategy === "migration") a.e = mergeEffect(a.e, { migrationReadiness: 3, stress: 1 });
+  if (["kl_pj", "jakarta", "manila"].includes(city) && a.strategy === "supplies") a.e = mergeEffect(a.e, { fuelAccess: highOil ? 4 : 2 });
+  if (philosophy === "protector" && a.strategy === "family") a.e = mergeEffect(a.e, { familyStability: 4, cash: -1 });
+  if (philosophy === "civic" && a.strategy === "community") a.e = mergeEffect(a.e, { reputation: 4, morale: 2 });
+  if (philosophy === "exit" && a.strategy === "migration") a.e = mergeEffect(a.e, { migrationReadiness: 4, emergencyPreparedness: 2 });
+  if (philosophy === "opportunist" && a.strategy === "grey") a.e = mergeEffect(a.e, { cash: 4, legalRisk: 2, reputation: -1 });
+  if (highFinance && a.strategy === "money") a.e = mergeEffect(a.e, { cash: 3, stress: 2, debt: a.e.debt ? -2 : 0 });
+  if (highFinance && a.strategy === "career") a.e = mergeEffect(a.e, { jobSecurity: 2, stress: 1 });
+  if (highOil && a.strategy === "supplies") a.e = mergeEffect(a.e, { foodSupply: 3, fuelAccess: 3, cash: -2 });
+  if (highCyber && a.strategy === "career") a.e = mergeEffect(a.e, { internetAccess: -2, careerCapital: 2 });
+  if (highHumanitarian && a.strategy === "health") a.e = mergeEffect(a.e, { medicineAccess: 3, cash: -2 });
+  if ((stats.stress || 0) > 75 && a.strategy === "health") a.e = mergeEffect(a.e, { stress: -4, health: 3 });
+  if ((stats.foodSupply || 0) < 30 && a.strategy === "supplies") a.e = mergeEffect(a.e, { foodSupply: 4, morale: 1 });
+  if ((stats.cash || 0) < 25 && ["HOME", "DIP", "HEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { debt: 3, stress: 1 });
+  a.o = `${a.o} Impact reflects your ${profile.role.name}, ${profile.spawn.name}, and ${profile.philosophy.name.toLowerCase()} posture.`;
+  return a;
+}
+function buildLifeChoices(day, profile, crisis, stats) {
+  const chosen = new Map<string, AnyRecord>();
+  const add = (a?: AnyRecord) => { if (a) chosen.set(a.l, contextualizeLifeAction(a, profile, crisis, stats)); };
+  recoveryStrategiesFor(stats).slice(0, 3).forEach((s, i) => add(actionByStrategy(s, i % 2)));
+  add(LIFE_ACTIONS[(day - 1) % LIFE_ACTIONS.length]);
+  add(LIFE_ACTIONS[(day + 4) % LIFE_ACTIONS.length]);
+  add(profile.role.roleChoice ? { ...profile.role.roleChoice, strategy: profile.role.roleChoice.strategy || "career" } : null);
+  if (profile.philosophy.id === "protector") add(actionByStrategy("family"));
+  if (profile.philosophy.id === "civic") add(actionByStrategy("community"));
+  if (profile.philosophy.id === "exit") add(actionByStrategy("migration", 1));
+  if (profile.philosophy.id === "opportunist") add(actionByStrategy("grey", 1));
+  if ((crisis.financialContagion || 0) > 58 || (stats.cash || 0) < 30) add(actionByStrategy("money", 1));
+  if ((crisis.oilShock || 0) > 55 || (stats.foodSupply || 0) < 35) add(actionByStrategy("supplies"));
+  if ((crisis.escalationLevel || 0) > 55 || (stats.migrationReadiness || 0) < 35) add(actionByStrategy("migration"));
+  return Array.from(chosen.values()).slice(0, 6);
+}
+function buildLifeEvent(day, profile, currentStats = profile.stats) {
   const local = LIFE_LOCAL_EVENTS[(day - 1) % LIFE_LOCAL_EVENTS.length];
-  const pressure = day % 5 === 0 ? { morale: -3, debt: 3, risk: 2 } : {};
+  const stage = Math.min(6, Math.ceil(day / 7));
+  const crisis = {
+    financialContagion: 18 + stage * 7 + (day % 5 === 0 ? 10 : 0),
+    oilShock: 24 + stage * 6 + (["jakarta", "kl_pj", "manila"].includes(profile.spawn.id) ? 8 : 0),
+    cyberDisruption: 14 + stage * 5 + (["tech", "cyber", "compliance", "finance"].includes(profile.role.id) ? 8 : 0),
+    refugeePressure: 10 + stage * 5 + (["taipei", "hong_kong", "seoul"].includes(profile.spawn.id) ? 10 : 0),
+    escalationLevel: 20 + stage * 7 + (["taipei", "seoul", "tokyo"].includes(profile.spawn.id) ? 8 : 0),
+    nuclearRisk: 8 + stage * 4 + (["taipei", "seoul"].includes(profile.spawn.id) ? 6 : 0),
+    humanitarianDamage: 12 + stage * 5,
+  };
+  const pressure = {
+    jobSecurity: -Math.round(crisis.financialContagion / 18),
+    debt: Math.round(crisis.financialContagion / 28),
+    monthlyIncome: -Math.round(crisis.financialContagion / 35),
+    fuelAccess: -Math.round(crisis.oilShock / 16),
+    foodSupply: -Math.round((crisis.oilShock + crisis.humanitarianDamage) / 32),
+    internetAccess: -Math.round(crisis.cyberDisruption / 22),
+    housingSecurity: -Math.round(crisis.refugeePressure / 28),
+    stress: Math.round((crisis.escalationLevel + crisis.nuclearRisk) / 26),
+    migrationReadiness: crisis.escalationLevel > 48 ? 2 : 0,
+    medicineAccess: -Math.round(crisis.humanitarianDamage / 24),
+    morale: -Math.round((crisis.humanitarianDamage + crisis.escalationLevel) / 36),
+  };
+  const choices = buildLifeChoices(day, profile, crisis, currentStats);
   return {
     local,
     role: { t: `${profile.role.name} Pressure`, d: profile.role.event },
-    choices: [
-      { l: "Stabilize the household and buy essentials", tag: "HOME", e: { supplies: 8, family: 5, money: -8, morale: 2, debt: 2 }, m: { food: 2, medicine: 1 }, o: "You pay retail before prices move again. The home base feels steadier." },
-      { l: "Take extra work and preserve cash flow", tag: "WORK", e: { money: 10, health: -4, morale: -3, family: -3, reputation: 2 }, m: { jobs: -2 }, o: "The shift is ugly, but cash arrives before the next price jump." },
-      { l: "Help neighbors and build a mutual-aid network", tag: "CIVIC", e: { reputation: 10, morale: 4, supplies: -5, risk: -2, money: -3 }, m: { food: -1 }, o: "People remember who showed up when the shelves were thin." },
-      profile.role.roleChoice,
-    ],
+    choices,
     pressure,
+    crisis,
   };
 }
 function resolveLifeChoice(stats, markets, event, choice, day) {
-  const drift = { food: rnd(0, 4), fuel: rnd(-1, 6), rent: rnd(0, 2), medicine: rnd(0, 4), usd: rnd(-2, 5), jobs: -rnd(0, 3) };
+  const c = event.crisis || {};
+  const drift = { food: rnd(0, 3) + Math.round((c.oilShock || 0) / 25), fuel: rnd(-1, 5) + Math.round((c.oilShock || 0) / 18), rent: rnd(0, 2) + Math.round((c.refugeePressure || 0) / 40), medicine: rnd(0, 3) + Math.round((c.humanitarianDamage || 0) / 28), usd: rnd(-2, 5) + Math.round((c.financialContagion || 0) / 35), jobs: -rnd(0, 2) - Math.round((c.financialContagion || 0) / 45) };
   const ns = lifeApplyStats(lifeApplyStats(lifeApplyStats(stats, event.local.e), event.pressure), choice.e);
   const nm = lifeApplyMarkets(lifeApplyMarkets(lifeApplyMarkets(markets, event.local.m), drift), choice.m);
-  const entry = `Day ${day}: ${event.local.t}. ${choice.o}`;
+  const preview = Object.entries(choice.e || {}).slice(0, 5).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
+  const entry = `Day ${day}: ${event.local.t}. ${choice.l}. ${choice.o}${preview ? ` Consequences: ${preview}.` : ""}`;
   return { stats: ns, markets: nm, entry };
 }
-function getLifeEnding(profile, stats) {
-  if (stats.debt > 92 || (stats.money < 20 && stats.debt > 70)) return { title: "Debt Collapse", grade: "F", body: "The crisis did not end with one dramatic mistake. It ended with compounding interest, late fees, and exhausted options." };
-  if (stats.money > 105 && stats.reputation < 38) return { title: "Black Market King", grade: "B-", body: "You learned where the shortages were before everyone else. The money is real. So are the enemies." };
-  if (stats.money > 105) return { title: "Crisis Millionaire", grade: "A-", body: "You turned volatility into a balance sheet. The city suffered, but your accounts tell a different story." };
-  if (stats.health < 34 || stats.morale < 30) return { title: "Burned-Out Professional", grade: "C-", body: "You kept working until the machine had nothing left to take except you." };
-  if (stats.family > 84) return { title: "Family Protector", grade: "A", body: "You did not save the world. You saved the people at your table, and that was the mission." };
-  if (profile.philosophy.id === "exit" && stats.money > 55 && stats.risk < 45) return { title: "Expat Escape", grade: "B+", body: "When the final window opened, your documents, cash, and timing were ready." };
-  if (stats.reputation > 82) return { title: "Community Pillar", grade: "A", body: "Your network became infrastructure. People survived because you made trust practical." };
-  return { title: "Quiet Survivor", grade: "B", body: "No headlines, no fortune, no collapse. You endured the crisis one careful day at a time." };
+function lifeStrategyNote(counts: AnyRecord = {}) {
+  const top = Object.entries(counts).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+  if (!top || Number(top[1]) <= 0) return "";
+  const labels = { money: "cash and debt triage", career: "career recovery", family: "family stabilization", community: "community aid", health: "health and stress recovery", supplies: "supplies and preparedness", migration: "migration planning", grey: "grey-market risk-taking" };
+  return `Your most repeated recovery strategy was ${labels[top[0]] || top[0]} (${top[1]} choices).`;
+}
+function getLifeEnding(profile, stats, context: AnyRecord = {}) {
+  const why = `You ended in ${profile.spawn.name} as a ${profile.role.name}: cash ${stats.cash}, debt ${stats.debt}, stress ${stats.stress}, reputation ${stats.reputation}. ${lifeStrategyNote(context.strategyCounts)}`;
+  if (stats.debt > 105 || (stats.cash < 22 && stats.debt > 78)) return { title: "Debt Collapse", grade: "F", body: `Compounding debt outran income and emergency cash. ${why}` };
+  if (stats.cash > 118 && stats.reputation < 38) return { title: "Black Market King", grade: "B-", body: `You profited from shortages faster than trust could survive it. ${why}` };
+  if (stats.cash > 126) return { title: "Crisis Millionaire", grade: "A-", body: `You converted volatility, income, and cash discipline into a balance sheet. ${why}` };
+  if (stats.health < 34 || stats.stress > 82 || stats.morale < 30) return { title: "Burned-Out Professional", grade: "C-", body: `You kept functioning until the crisis took it out of your body and mind. ${why}` };
+  if (stats.familyStability > 84) return { title: "Family Protector", grade: "A", body: `You did not save the world. You kept your people stable, housed, and supplied. ${why}` };
+  if (profile.philosophy.id === "exit" && stats.migrationReadiness > 72 && stats.cash > 48 && stats.legalRisk < 48) return { title: "Expat Escape", grade: "B+", body: `Documents, money, and timing lined up when the exit window opened. ${why}` };
+  if (stats.reputation > 84) return { title: "Community Pillar", grade: "A", body: `Your network became infrastructure. People survived because you made trust practical. ${why}` };
+  if (stats.careerCapital > 86 && stats.jobSecurity > 62) return { title: "Career Breakthrough During Chaos", grade: "A-", body: `You became visibly useful while institutions were short on calm competence. ${why}` };
+  return { title: "Quiet Survivor", grade: "B", body: `No headlines, no fortune, no collapse. You endured the crisis one careful day at a time. ${why}` };
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
@@ -277,6 +818,67 @@ const S = {
   tiny: { fontSize: "9px" },
   small: { fontSize: "11px" },
   med: { fontSize: "13px" },
+};
+
+const SAVE_KEY = "strait-protocol-2030-campaign-v2";
+const MEMORY_SAVE: AnyRecord = {};
+const storageGet = (k: string) => typeof localStorage !== "undefined" ? localStorage.getItem(k) : MEMORY_SAVE[k] || null;
+const storageSet = (k: string, v: string) => { if (typeof localStorage !== "undefined") localStorage.setItem(k, v); else MEMORY_SAVE[k] = v; };
+const storageRemove = (k: string) => { if (typeof localStorage !== "undefined") localStorage.removeItem(k); else delete MEMORY_SAVE[k]; };
+const saveSet = (s?: Set<string>) => Array.from(s || []);
+const restoreSet = (a?: string[]) => new Set(a || []);
+const fmtEntries = (obj: AnyRecord = {}, limit = 8) => Object.entries(obj).slice(0, limit).map(([k, v]) => `${k}: ${v}`).join(", ");
+const downloadText = (name: string, text: string) => {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+};
+const warSummaryText = (state: AnyRecord) => {
+  const F = state.fid ? FACTIONS[state.fid] : null;
+  const fleet = fleetSummary(state.fleetAssets || []);
+  const chains = (state.chainHistory || []).map((c) => `- D${c.day}: ${c.t}`).join("\n") || "- No major crisis chains recorded yet.";
+  const timeline = (state.timeline || []).slice(-6).map((t) => `- D${t.day}: ${t.title} - ${t.body}`).join("\n") || "- No turning points recorded yet.";
+  const log = (state.warLog || []).slice(-8).map((l) => `- ${l}`).join("\n") || "- No War Room decisions recorded yet.";
+  return [
+    "STRAIT PROTOCOL: 2030 - War Room Summary",
+    `Faction: ${F ? `${F.name} / ${F.sub}` : state.fid || "Unknown"}`,
+    `Day ${state.day}/45, Act ${state.act}, Turn ${Number(state.turn || 0) + 1}, Phase: ${state.phase}`,
+    `Core stats: ${fmtEntries(state.stats, 14)}`,
+    `Global crisis stats: ${fmtEntries(state.crisis, 15)}`,
+    `Decision mix: ${fmtEntries(state.decisionCounts, 10) || "none"}`,
+    `Fleet outcomes: sea control ${fleet.seaControl}, readiness ${fleet.readiness}, supply ${fleet.supply}, fuel ${fleet.fuel}, threat ${fleet.threat}`,
+    `Fleet command points remaining: ${state.fleetCommandPoints}/${FLEET_COMMAND_POINTS_PER_DAY}`,
+    "Major crisis chains:",
+    chains,
+    "Recent turning points:",
+    timeline,
+    "Recent log:",
+    log,
+  ].join("\n");
+};
+const lifeSummaryText = (state: AnyRecord) => {
+  const profile = state.lifeProfile;
+  const log = (state.lifeLog || []).slice(-10).map((l) => `- ${l}`).join("\n") || "- No Life decisions recorded yet.";
+  return [
+    "STRAIT PROTOCOL: 2030 - Life During Chaos Summary",
+    `Profile: ${profile ? `${profile.spawn?.name} / ${profile.role?.name} / ${profile.philosophy?.name}` : "No active profile"}`,
+    `Day ${state.lifeDay}/${profile?.length || "?"}`,
+    `Personal stats: ${fmtEntries(state.lifeStats, 18)}`,
+    `Markets: ${fmtEntries(state.lifeMarkets, 8)}`,
+    `Recovery strategy mix: ${fmtEntries(state.lifeStrategyCounts, 8) || "none"}`,
+    "Recent life log:",
+    log,
+  ].join("\n");
+};
+const whyWarChoice = (chosen: AnyRecord, crisis: StatMap = {}) => {
+  if (!chosen) return "";
+  const pressure = Object.keys(chosen.pressureDelta || {}).length ? "Faction pressure moved because this response matched or strained your faction's internal politics." : "";
+  const crisisHit = Object.entries(chosen.crisisDelta || {}).filter(([, v]) => Number(v) !== 0).map(([k]) => CRISIS_META[k]?.label || k).slice(0, 3).join(", ");
+  const risk = chosen.c.type === "bad" ? "This was a high-risk response; the payoff came with structural damage." : chosen.c.type === "good" ? "This was a stabilizing response; it traded speed or resources for resilience." : "This was a trade-off response; it solved one pressure while moving another.";
+  const nuclear = (crisis.nuclearRisk || 0) >= 50 ? " Nuclear risk is now high enough to color later events and endings." : "";
+  return `${risk} ${pressure} ${crisisHit ? `It directly affected ${crisisHit}.` : ""}${nuclear}`.trim();
 };
 
 // ─── SUB-COMPONENTS ───────────────────────────────────────────────────────────
@@ -296,6 +898,135 @@ function StatBar({ label, value }: AnyRecord) {
       <div style={{ fontSize: "15px", fontWeight: 500, color: vC(value) }}>{value}</div>
       <div style={{ height: "2px", borderRadius: "1px", background: "var(--color-border-tertiary)", marginTop: "2px" }}>
         <div style={{ height: "2px", borderRadius: "1px", width: `${value}%`, background: vC(value), transition: "width 0.3s" }} />
+      </div>
+    </div>
+  );
+}
+
+function PressureMetric({ id, value, meta }: AnyRecord) {
+  const color = pressureC(meta, value);
+  const bg = pressureBg(meta, value);
+  const status = meta?.riskHigh ? (value < 35 ? "Contained" : value < 65 ? "Watch" : "Critical") : (value >= 65 ? "Strong" : value >= 40 ? "Fragile" : "Weak");
+  return (
+    <div style={{ background: bg, border: `0.5px solid ${color}`, borderRadius: "var(--border-radius-md)", padding: "6px 7px", minHeight: "55px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "baseline" }}>
+        <div style={{ fontSize: "8px", color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", lineHeight: 1.2 }}>{meta?.label || id}</div>
+        <div style={{ fontSize: "14px", fontWeight: 800, color }}>{value}</div>
+      </div>
+      <div style={{ height: "3px", borderRadius: "999px", background: "rgba(255,255,255,0.65)", overflow: "hidden", margin: "4px 0 3px" }}>
+        <div style={{ width: `${value}%`, height: "3px", borderRadius: "999px", background: color }} />
+      </div>
+      <div style={{ fontSize: "8px", color, fontWeight: 700 }}>{status}</div>
+    </div>
+  );
+}
+
+function CrisisTile({ id, value }: AnyRecord) {
+  const meta = CRISIS_META[id] || { label: id };
+  const color = crisisC(id, value);
+  const bg = crisisBg(id, value);
+  const status = meta.goodHigh ? (value >= 65 ? "Strong" : value >= 40 ? "Fragile" : "Weak") : (value < 35 ? "Low" : value < 65 ? "Elevated" : "Severe");
+  return (
+    <div style={{ background: bg, border: `0.5px solid ${color}`, borderRadius: "var(--border-radius-md)", padding: "6px 7px", minHeight: "54px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "baseline", marginBottom: "3px" }}>
+        <div style={{ fontSize: "8px", color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", lineHeight: 1.2 }}>{meta.label}</div>
+        <div style={{ fontSize: "14px", fontWeight: 800, color }}>{value}</div>
+      </div>
+      <div style={{ height: "3px", borderRadius: "999px", background: "rgba(255,255,255,0.65)", overflow: "hidden", marginBottom: "3px" }}>
+        <div style={{ width: `${value}%`, height: "3px", borderRadius: "999px", background: color }} />
+      </div>
+      <div style={{ fontSize: "8px", color, fontWeight: 700 }}>{status}</div>
+    </div>
+  );
+}
+
+function StrategicDashboard({ F, fid, stats, crisis, counts }: AnyRecord) {
+  const identity = factionMeta(fid);
+  const pressureKeys = factionPressureKeys(fid);
+  const posture = strategicPosture(fid, stats, crisis);
+  const used = Object.entries(counts).filter(([, v]) => Number(v) > 0);
+  return (
+    <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.72)" }}>
+      <div style={{ maxWidth: "1120px", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: "8px" }}>
+        <div style={{ ...S.card, padding: "10px", border: `1px solid ${F.bd}` }}>
+          <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 800 }}>Strategic Posture</div>
+          <div style={{ fontSize: "15px", fontWeight: 800, color: "var(--color-text-primary)", marginTop: "3px" }}>{posture}</div>
+          <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, marginTop: "5px" }}>{F.tagline}</div>
+          <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", lineHeight: 1.45, marginTop: "5px" }}>{identity.mechanic}</div>
+        </div>
+        <div style={{ ...S.card, padding: "10px" }}>
+          <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 800, marginBottom: "6px" }}>Faction Pressure</div>
+          <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", lineHeight: 1.45, marginBottom: "7px" }}>{identity.why}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(118px,1fr))", gap: "5px" }}>
+            {pressureKeys.map(k => <PressureMetric key={k} id={k} value={stats[k]} meta={identity.stats[k]} />)}
+          </div>
+        </div>
+        <div style={{ ...S.card, padding: "10px" }}>
+          <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 800, marginBottom: "6px" }}>Decision Mix</div>
+          {used.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No doctrine established yet.</div> : used.map(([k, v]) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "10px", color: "var(--color-text-secondary)", borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}>
+              <span>{k}</span><b style={{ color: "var(--color-text-primary)" }}>{v as number}</b>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActProgress({ act, day, F }: AnyRecord) {
+  return (
+    <div style={{ padding: "7px 14px", background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+      <div style={{ maxWidth: "1120px", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "4px" }}>
+        {[1, 2, 3, 4, 5, 6].map(a => (
+          <div key={a} style={{ border: `0.5px solid ${a === act ? F.bd : "var(--color-border-tertiary)"}`, background: a < act ? "#EAF3DE" : a === act ? F.bg : "var(--color-background-primary)", borderRadius: "var(--border-radius-md)", padding: "5px 6px", minHeight: "42px" }}>
+            <div style={{ fontSize: "8px", color: a <= act ? F.color : "var(--color-text-tertiary)", fontWeight: 800, textTransform: "uppercase" }}>Act {a}</div>
+            <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", lineHeight: 1.25 }}>{ACTS[a]}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ maxWidth: "1120px", margin: "5px auto 0", fontSize: "9px", color: "var(--color-text-tertiary)", textAlign: "right" }}>Day {day}/45</div>
+    </div>
+  );
+}
+
+function WarRoomSidePanel({ log, timeline }: AnyRecord) {
+  return (
+    <div style={{ display: "grid", gap: "8px" }}>
+      <div style={{ ...S.panel, padding: "11px", maxHeight: "260px", overflow: "auto" }}>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Crisis Timeline</div>
+        {timeline.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.55 }}>No turning points recorded yet. Major decisions, fleet orders, and crisis chains will appear here once the campaign starts bending history.</div> : timeline.slice().reverse().map((t, i) => (
+          <div key={i} style={{ borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>
+            <div style={{ fontSize: "9px", color: "#854F0B", fontWeight: 800 }}>D{t.day} · Act {t.act} · {t.title}</div>
+            <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45 }}>{t.body}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ ...S.panel, padding: "11px", maxHeight: "300px", overflow: "auto" }}>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>War Room Log</div>
+        {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.55 }}>No decisions recorded yet. Your choices, blocked fleet orders, sudden events, and consequence notes will collect here.</div> : log.slice().reverse().map((l, i) => (
+          <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.5, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CampaignControls({ mode, canLoad, message, onSave, onLoad, onClear, onExport, onRestart }: AnyRecord) {
+  const btn = (label, fn, disabled = false, tone = "plain") => (
+    <button onClick={fn} disabled={disabled} style={{ fontSize: "9px", padding: "5px 8px", borderRadius: "var(--border-radius-md)", border: `0.5px solid ${tone === "danger" ? "#F09595" : tone === "good" ? "#97C459" : "var(--color-border-tertiary)"}`, background: disabled ? "var(--color-background-secondary)" : tone === "danger" ? "#FCEBEB" : tone === "good" ? "#EAF3DE" : "var(--color-background-primary)", color: disabled ? "var(--color-text-tertiary)" : tone === "danger" ? "#A32D2D" : tone === "good" ? "#3B6D11" : "var(--color-text-secondary)", cursor: disabled ? "not-allowed" : "pointer", fontWeight: 700, fontFamily: "var(--font-sans)" }}>{label}</button>
+  );
+  return (
+    <div style={{ padding: "6px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.72)" }}>
+      <div style={{ maxWidth: "1120px", margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+        <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", lineHeight: 1.35 }}><b style={{ color: "var(--color-text-secondary)" }}>{mode}</b>{message ? ` - ${message}` : ""}</div>
+        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+          {btn("Save", onSave, false, "good")}
+          {btn("Load", onLoad, !canLoad)}
+          {btn("Clear Save", onClear, !canLoad, "danger")}
+          {btn("Export Summary", onExport)}
+          {btn("Restart", onRestart, false, "danger")}
+        </div>
       </div>
     </div>
   );
@@ -325,6 +1056,45 @@ function FleetCard({ fl }: AnyRecord) {
 }
 
 // ─── SCREENS ─────────────────────────────────────────────────────────────────
+function FleetOpsCard({ fl, onAction, commandPoints = FLEET_COMMAND_POINTS_PER_DAY, orderedToday = false }: AnyRecord) {
+  const isCrit = fl.threat === "Critical" || fl.threat === "Imminent" || fl.status === "approaching";
+  const actions = ["Deploy", "Hold", "Resupply", "Escort", "Shadow", "Interdict", "Retreat", "Strike Ready"];
+  return (
+    <div style={{ ...S.card, padding: "7px 8px", border: `0.5px solid ${isCrit ? "#F09595" : "var(--color-border-tertiary)"}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1px", gap: "6px" }}>
+        <span style={{ fontSize: "9px", fontWeight: 650, color: "var(--color-text-primary)" }}>{fl.name}</span>
+        {fl.u > 0 && <span style={{ fontSize: "8px", color: "var(--color-text-tertiary)", whiteSpace: "nowrap" }}>{fl.u > 999 ? `${Math.round(fl.u / 1000)}k` : fl.u}u</span>}
+      </div>
+      <div style={{ fontSize: "8px", color: "var(--color-text-tertiary)", marginBottom: "3px" }}>{fl.type}</div>
+      <div style={{ display: "flex", gap: "2px", flexWrap: "wrap", marginBottom: "3px" }}>
+        <span style={{ fontSize: "8px", padding: "0 4px", borderRadius: "4px", background: thrBg(fl.threat), color: stC(fl.status), border: "0.5px solid currentColor" }}>{fl.status}</span>
+        <span style={{ fontSize: "8px", padding: "0 4px", borderRadius: "4px", background: thrBg(fl.threat), color: thrC(fl.threat), border: `0.5px solid ${thrC(fl.threat)}` }}>Risk {fl.threat}</span>
+        <span style={{ fontSize: "8px", padding: "0 4px", borderRadius: "4px", background: "var(--color-background-secondary)", color: "var(--color-text-tertiary)", border: "0.5px solid var(--color-border-tertiary)" }}>{fl.location || fl.front}</span>
+      </div>
+      <div style={{ fontSize: "8px", color: "var(--color-text-secondary)", marginBottom: "3px" }}>Mission: {fl.mission}</div>
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+        <span style={{ fontSize: "8px", color: "#BA7517" }}>ETA {fl.eta || 0}d</span>
+        <span style={{ fontSize: "8px", color: supC(fl.sup), fontWeight: 600 }}>Supply {fl.sup >= 999 ? "open" : fl.sup + "d"}</span>
+        <span style={{ fontSize: "8px", color: riskC(100 - fl.fuel), fontWeight: 600 }}>Fuel {fl.fuel}%</span>
+        <span style={{ fontSize: "8px", color: vC(fl.readiness), fontWeight: 600 }}>Ready {fl.readiness}%</span>
+      </div>
+      {fl.note && <div style={{ fontSize: "8px", color: "var(--color-text-tertiary)", marginTop: "2px", fontStyle: "italic", lineHeight: 1.3 }}>{fl.note}</div>}
+      {orderedToday && <div style={{ fontSize: "8px", color: "#854F0B", marginTop: "3px", fontWeight: 650 }}>Orders issued today</div>}
+      <div style={{ display: "flex", gap: "3px", flexWrap: "wrap", marginTop: "5px" }}>
+        {actions.map(a => {
+          const cost = fleetActionCost(a);
+          const blocked = orderedToday || cost > commandPoints || !!fleetStatusBlockReason(fl, a);
+          return (
+          <button key={a} disabled={blocked} title={blocked ? orderedToday ? "This fleet already received orders today" : cost > commandPoints ? "No Fleet Command Points remaining" : "Action unavailable due to fleet status" : `${cost} Fleet Command Point${cost === 1 ? "" : "s"}`} onClick={() => onAction(a)} style={{ fontSize: "8px", padding: "2px 5px", borderRadius: "5px", border: `0.5px solid ${blocked ? "var(--color-border-tertiary)" : "#185FA5"}`, background: blocked ? "var(--color-background-secondary)" : "var(--color-background-primary)", color: blocked ? "var(--color-text-tertiary)" : "var(--color-text-secondary)", cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.58 : 1, fontFamily: "var(--font-sans)" }}>
+            {a}{cost > 1 ? ` ${cost}` : ""}
+          </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function FactionScreen({ onPick }: AnyRecord) {
   return (
     <div style={S.shell}>
@@ -359,7 +1129,7 @@ function FactionScreen({ onPick }: AnyRecord) {
   );
 }
 
-function MainMenu({ onWar, onLife }: AnyRecord) {
+function MainMenu({ onWar, onLife, canLoad, onLoad, onClear, saveMessage }: AnyRecord) {
   const modeCard = (title, eyebrow, body, accent, bg, onClick, chips) => (
     <button onClick={onClick}
       style={{ ...S.panel, cursor: "pointer", padding: "18px", textAlign: "left", fontFamily: "var(--font-sans)", minHeight: "210px", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden" }}
@@ -398,7 +1168,14 @@ function MainMenu({ onWar, onLife }: AnyRecord) {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "12px" }}>
         {modeCard("War Room Mode", "Strategic Command", "Play the current strategic crisis game with factions, fleets, diplomatic choices, sudden events, and national endings.", "#185FA5", "#E6F1FB", onWar, ["Factions", "Fleets", "Crisis Cards", "Endings"])}
-        {modeCard("Life During Chaos Mode", "Civilian Survival", "Prototype the daily-survival loop with roles, spawn points, personal stats, markets, local events, and early civilian endings.", "#854F0B", "#FAEEDA", onLife, ["Spawn", "Role", "Markets", "Event Log"])}
+        {modeCard("Life During Chaos Mode", "Civilian Survival", "Play a compact survival RPG with cities, roles, household pressure, markets, crisis events, and civilian endings.", "#854F0B", "#FAEEDA", onLife, ["Cities", "Roles", "Markets", "Event Log"])}
+      </div>
+      <div style={{ ...S.panel, padding: "10px", marginTop: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+        <div style={{ fontSize: "10px", color: "var(--color-text-secondary)" }}>{saveMessage || (canLoad ? "A saved campaign is available on this browser." : "No saved campaign found on this browser.")}</div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          <button onClick={onLoad} disabled={!canLoad} style={{ padding: "7px 10px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)", background: canLoad ? "var(--color-background-primary)" : "var(--color-background-secondary)", color: canLoad ? "var(--color-text-primary)" : "var(--color-text-tertiary)", cursor: canLoad ? "pointer" : "not-allowed", fontSize: "10px", fontWeight: 700 }}>Load Saved Campaign</button>
+          <button onClick={onClear} disabled={!canLoad} style={{ padding: "7px 10px", borderRadius: "var(--border-radius-md)", border: "0.5px solid #F09595", background: canLoad ? "#FCEBEB" : "var(--color-background-secondary)", color: canLoad ? "#A32D2D" : "var(--color-text-tertiary)", cursor: canLoad ? "pointer" : "not-allowed", fontSize: "10px", fontWeight: 700 }}>Clear Save</button>
+        </div>
       </div>
     </div>
   );
@@ -406,6 +1183,7 @@ function MainMenu({ onWar, onLife }: AnyRecord) {
 
 function LifeSetupScreen({ draft, setDraft, onStart, onBack }: AnyRecord) {
   const pick = (k, v) => setDraft(d => ({ ...d, [k]: v }));
+  const preview = buildLifeProfile(draft);
   const optionGrid = (title, keyName, items) => (
     <div style={{ marginBottom: "14px" }}>
       <div style={{ fontSize: "10px", color: "#854F0B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px", fontWeight: 700 }}>{title}</div>
@@ -426,14 +1204,22 @@ function LifeSetupScreen({ draft, setDraft, onStart, onBack }: AnyRecord) {
     <div style={S.shell}>
       <button onClick={onBack} style={{ marginBottom: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)", padding: "7px 10px", cursor: "pointer", fontSize: "10px", fontWeight: 650 }}>Back to Menu</button>
       <div style={{ ...S.panel, padding: "16px", marginBottom: "12px", borderTop: "3px solid #EF9F27" }}>
-        <div style={{ fontSize: "10px", color: "#854F0B", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "5px" }}>Phase 2 Foundation</div>
+        <div style={{ fontSize: "10px", color: "#854F0B", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "5px" }}>Civilian Survival RPG</div>
         <div style={{ fontSize: "22px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "5px" }}>Life During Chaos</div>
-        <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.65 }}>Create a civilian campaign profile. The current build focuses on the compact daily loop: events, markets, stats, choices, log, and endings.</div>
+        <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.65 }}>Create a civilian campaign profile with city, role, philosophy, cash, debt, income, family obligations, and crisis pressure.</div>
       </div>
       <div style={{ ...S.panel, padding: "14px" }}>
         {optionGrid("Spawn Point", "spawn", LIFE_SPAWNS)}
         {optionGrid("Role", "role", LIFE_ROLES)}
         {optionGrid("Life Philosophy", "philosophy", LIFE_PHILOSOPHIES)}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: "6px", marginBottom: "14px" }}>
+        {[["Job Sector", preview.jobSector], ["Starting Cash", preview.startingCash], ["Debt", preview.debt], ["Monthly Income", preview.monthlyIncome], ["Family Obligation", preview.familyObligation]].map(([k, v]) => (
+          <div key={k} style={{ background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "8px" }}>
+            <div style={{ fontSize: "8px", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{k}</div>
+            <div style={{ fontSize: "12px", color: "var(--color-text-primary)", fontWeight: 750, marginTop: "2px" }}>{v}</div>
+          </div>
+        ))}
+      </div>
       <div style={{ marginBottom: "14px" }}>
         <div style={{ fontSize: "10px", color: "#854F0B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px", fontWeight: 700 }}>Campaign Length</div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -447,11 +1233,11 @@ function LifeSetupScreen({ draft, setDraft, onStart, onBack }: AnyRecord) {
 }
 
 function LifeMetric({ label, value, limit = 100 }: AnyRecord) {
-  const color = label === "debt" || label === "risk" ? (value > 70 ? "#A32D2D" : value > 45 ? "#BA7517" : "#1D9E75") : vC(value);
+  const color = lifeRiskHigh(label) ? (value > 70 ? "#A32D2D" : value > 45 ? "#BA7517" : "#1D9E75") : vC(value);
   return (
     <div style={{ ...S.card, padding: "7px 8px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "baseline" }}>
-        <div style={{ fontSize: "8px", textTransform: "uppercase", color: "var(--color-text-tertiary)", letterSpacing: "0.04em" }}>{label}</div>
+        <div style={{ fontSize: "8px", textTransform: "uppercase", color: "var(--color-text-tertiary)", letterSpacing: "0.04em", lineHeight: 1.15 }}>{lifeLabel(label)}</div>
         <div style={{ fontSize: "14px", fontWeight: 800, color }}>{value}</div>
       </div>
       <div style={{ height: "3px", background: "var(--color-border-tertiary)", borderRadius: "3px", marginTop: "5px", overflow: "hidden" }}><div style={{ width: `${Math.min(100, (value / limit) * 100)}%`, background: color, height: "3px", borderRadius: "3px" }} /></div>
@@ -459,10 +1245,12 @@ function LifeMetric({ label, value, limit = 100 }: AnyRecord) {
   );
 }
 
-function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, onBack }: AnyRecord) {
+function LifeGameScreen({ profile, day, stats, markets, event, log, controls, onChoice, onBack }: AnyRecord) {
   const progress = Math.round((day / profile.length) * 100);
+  const lifePreview = (c) => Object.entries(c.e || {}).slice(0, 4).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
   return (
     <div style={S.root}>
+      {controls}
       <div style={{ ...S.shell, paddingTop: "10px", paddingBottom: "10px" }}>
         <div style={{ ...S.panel, padding: "12px 14px", borderTop: "3px solid #EF9F27" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start", flexWrap: "wrap", marginBottom: "9px" }}>
@@ -502,6 +1290,9 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, on
             <div style={{ fontSize: "9px", color: "#185FA5", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Local Crisis Event</div>
             <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px" }}>{event.local.t}</div>
             <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "10px" }}>{event.local.d}</div>
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "8px" }}>
+              {Object.entries(event.crisis || {}).slice(0, 4).map(([k, v]) => <span key={k} style={{ fontSize: "8px", padding: "2px 6px", borderRadius: "999px", background: riskBg(Number(v)), color: riskC(Number(v)), border: "0.5px solid currentColor" }}>{lifeLabel(k)} {v}</span>)}
+            </div>
             <div style={{ fontSize: "11px", color: "#854F0B", lineHeight: 1.6, background: "#fff7e8", border: "0.5px solid #EF9F27", borderRadius: "var(--border-radius-md)", padding: "8px 10px" }}><b>{event.role.t}:</b> {event.role.d}</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -511,6 +1302,7 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, on
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.background = "var(--color-background-primary)"; }}
               >
                 <Tag tag={c.tag} /><span style={{ marginLeft: "8px" }}>{c.l}</span>
+                <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", marginTop: "4px" }}>{lifePreview(c)}</div>
               </button>
             ))}
           </div>
@@ -518,20 +1310,29 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, on
         </div>
         <div style={{ ...S.panel, padding: "11px", maxHeight: "420px", overflow: "auto" }}>
           <div style={{ fontSize: "10px", fontWeight: 800, color: "var(--color-text-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Event Log</div>
-          {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No decisions recorded yet.</div> : log.slice().reverse().map((l, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>)}
+          {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.55 }}>No life decisions recorded yet. Recovery choices, trade-offs, market pressure, and survival notes will appear here.</div> : log.slice().reverse().map((l, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>)}
         </div>
       </div>
     </div>
   );
 }
 
-function LifeEndingScreen({ ending, profile, stats, onRestart, onMenu }: AnyRecord) {
+function LifeEndingScreen({ ending, profile, stats, controls, onRestart, onMenu }: AnyRecord) {
   return (
     <div style={{ ...S.root, padding: "22px 14px", textAlign: "center" }}>
+      {controls}
       <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", letterSpacing: "0.08em", marginBottom: "12px" }}>LIFE DURING CHAOS · {profile.spawn.name}</div>
       <div style={{ fontSize: "20px", fontWeight: 600, color: "#854F0B", marginBottom: "4px" }}>{ending.title}</div>
       <div style={{ display: "inline-block", padding: "3px 18px", border: "1.5px solid #EF9F27", borderRadius: "18px", background: "#FAEEDA", color: "#854F0B", fontWeight: 600, marginBottom: "12px" }}>{ending.grade}</div>
       <div style={{ maxWidth: "520px", margin: "0 auto 14px", fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.75 }}>{ending.body}</div>
+      <div style={{ maxWidth: "520px", margin: "0 auto 14px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "6px", textAlign: "left" }}>
+        {[["Role Note", profile.role.note], ["City Note", profile.spawn.note], ["Philosophy", profile.philosophy.note]].map(([k, v]) => (
+          <div key={k} style={{ ...S.card, padding: "8px" }}>
+            <div style={{ fontSize: "8px", color: "#854F0B", textTransform: "uppercase", fontWeight: 800 }}>{k}</div>
+            <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, marginTop: "3px" }}>{v}</div>
+          </div>
+        ))}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "4px", maxWidth: "520px", margin: "0 auto 16px" }}>
         {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
       </div>
@@ -548,13 +1349,18 @@ function ManualOverlay({ onClose }: AnyRecord) {
     <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(25,25,23,0.36)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
       <div style={{ width: "min(520px, 100%)", background: "var(--color-background-primary)", border: "1px solid var(--color-border-primary)", borderRadius: "var(--border-radius-lg)", padding: "16px", boxShadow: "0 18px 60px rgba(0,0,0,0.22)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", marginBottom: "10px" }}>
-          <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--color-text-primary)" }}>War Room Manual</div>
+          <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--color-text-primary)" }}>Manual / Help</div>
           <button onClick={onClose} style={{ border: "1px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-secondary)", cursor: "pointer", padding: "5px 9px", fontSize: "11px", fontFamily: "var(--font-sans)" }}>Close</button>
         </div>
         <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.7 }}>
-          <p style={{ margin: "0 0 8px" }}>Pick a faction, read each crisis card, and choose one response. Each choice shifts your national stats, advances the calendar, and can trigger a sudden event.</p>
-          <p style={{ margin: "0 0 8px" }}>Fleet Status shows deployed forces, threat level, transit ETA, and supply days. Low stats and risky strike choices can push you toward harsher endings.</p>
-          <p style={{ margin: 0 }}>The scenario ends when the crisis reaches the final act, Day 45, or the available crisis queue is exhausted.</p>
+          <p style={{ margin: "0 0 8px" }}><b>War Room:</b> each turn is a crisis day inside a six-act arc. Choose a faction, read the crisis card, and pick one response. Decisions move public stats, global crisis stats, faction pressure stats, the timeline, and the ending.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Global crisis stats:</b> stability, escalation, finance, oil, food, semiconductors, cyber, refugees, media panic, alliances, trust, weariness, humanitarian damage, and nuclear risk shape follow-up events.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Faction pressure stats:</b> each faction has its own internal stress model: caucuses, allies, Politburo, PLA, EU council unity, P5 consensus, oligarchs, coup risk, Malacca control, and more.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Fleet command points:</b> fleets can receive limited orders per day. Each fleet can only be ordered once per day, and command points reset after advancing the turn.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Crisis chains:</b> bad stats, prior choices, fleet posture, and timing can trigger follow-up shocks such as banking cyberattacks, tanker insurance spikes, refugee surges, and ceasefire offers.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Life During Chaos:</b> play a civilian survival RPG. Daily recovery actions can rebuild cash, career, family, health, supplies, migration readiness, and community trust, but every recovery has trade-offs.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Endings:</b> final outcomes explain your stats, decision mix, crisis chains, fleet condition, recovery strategy, and role or faction-specific pressure.</p>
+          <p style={{ margin: 0 }}><b>Save and export:</b> saves live only in this browser through localStorage. Export creates a readable text summary for sharing or archiving.</p>
         </div>
       </div>
     </div>
@@ -567,17 +1373,45 @@ function ManualButton({ onClick }: AnyRecord) {
   );
 }
 
-function EndingScreen({ F, ending, stats, onRestart }: AnyRecord) {
+function EndingScreen({ F, ending, stats, controls, onRestart }: AnyRecord) {
   if (!ending) return null;
   const gradeColor = { "A+": "#1D9E75", "A": "#1D9E75", "A-": "#3B6D11", "B+": "#639922", "B": "#639922", "B-": "#BA7517", "C+": "#BA7517", "C": "#BA7517", "C-": "#854F0B", "D": "#E24B4A", "F": "#A32D2D" }[ending.grade] || "#888";
   const gradeBg = { "A+": "#EAF3DE", "A": "#EAF3DE", "A-": "#EAF3DE", "B+": "#EAF3DE", "B": "#EAF3DE", "B-": "#FAEEDA", "C+": "#FAEEDA", "C": "#FAEEDA", "C-": "#FAEEDA", "D": "#FCEBEB", "F": "#FCEBEB" }[ending.grade] || "#f5f5f5";
+  const ctx = ending.context || {};
+  const counts = Object.entries(ctx.decisionCounts || {}).filter(([, v]) => Number(v) > 0);
+  const turns = (ctx.timeline || []).slice(-4).reverse();
+  const chains = (ctx.chains || []).slice(-4).reverse();
+  const fleet = fleetSummary(ctx.fleets || []);
   return (
     <div style={{ padding: "20px 14px", textAlign: "center" }}>
+      {controls}
       <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", marginBottom: "16px", letterSpacing: "0.08em" }}>STRAIT PROTOCOL: 2030 · DAY 45</div>
       <div style={{ fontSize: "28px", marginBottom: "8px" }}>{F.flag}</div>
       <div style={{ fontSize: "18px", fontWeight: 500, color: gradeColor, marginBottom: "4px" }}>{ending.title}</div>
       <div style={{ display: "inline-block", padding: "3px 18px", borderRadius: "20px", border: `1.5px solid ${gradeColor}`, fontSize: "16px", fontWeight: 500, color: gradeColor, background: gradeBg, marginBottom: "14px" }}>{ending.grade}</div>
       <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.8, marginBottom: "16px", maxWidth: "440px", margin: "0 auto 16px" }}>{ending.body}</div>
+      {(counts.length > 0 || turns.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "8px", maxWidth: "620px", margin: "0 auto 16px", textAlign: "left" }}>
+          <div style={{ ...S.card, padding: "10px" }}>
+            <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Decision Doctrine</div>
+            {counts.map(([k, v]) => <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}><span>{k}</span><b>{v as number}</b></div>)}
+          </div>
+          <div style={{ ...S.card, padding: "10px" }}>
+            <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Defining Turns</div>
+            {turns.map((t, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}>D{t.day}: {t.title} · {t.body}</div>)}
+          </div>
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "8px", maxWidth: "620px", margin: "0 auto 16px", textAlign: "left" }}>
+        <div style={{ ...S.card, padding: "10px" }}>
+          <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Crisis Chains</div>
+          {chains.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No major crisis chains dominated this run.</div> : chains.map((c, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}>D{c.day}: {c.t}</div>)}
+        </div>
+        <div style={{ ...S.card, padding: "10px" }}>
+          <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Fleet Outcome</div>
+          <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55 }}>Sea control {fleet.seaControl}. Readiness {fleet.readiness}. Supply {fleet.supply}. Fuel {fleet.fuel}. Threat {fleet.threat}.</div>
+        </div>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "4px", maxWidth: "460px", margin: "0 auto 18px" }}>
         {Object.entries(stats as StatMap).map(([k, v]) => (
           <div key={k} style={{ background: "var(--color-background-secondary)", borderRadius: "6px", padding: "4px 4px", textAlign: "center", border: `0.5px solid ${vBg(v)}` }}>
@@ -614,6 +1448,17 @@ export default function App() {
   const [recession, setRecession] = useState(22);
   const [nukeAlert, setNukeAlert] = useState(1);
   const [taiwanFuel, setTaiwanFuel] = useState(61);
+  const [crisis, setCrisis] = useState<StatMap>({ ...DEFAULT_CRISIS });
+  const [warLog, setWarLog] = useState<string[]>([]);
+  const [timeline, setTimeline] = useState<any[]>([]);
+  const [decisionCounts, setDecisionCounts] = useState<AnyRecord>(emptyDecisionCounts());
+  const [usedFactionEvents, setUsedFactionEvents] = useState<Set<string>>(new Set());
+  const [fleetAssets, setFleetAssets] = useState<any[]>([]);
+  const [usedFleetEvents, setUsedFleetEvents] = useState<Set<string>>(new Set());
+  const [fleetCommandPoints, setFleetCommandPoints] = useState(FLEET_COMMAND_POINTS_PER_DAY);
+  const [fleetOrdersToday, setFleetOrdersToday] = useState<AnyRecord>({});
+  const [usedChainEvents, setUsedChainEvents] = useState<Set<string>>(new Set());
+  const [chainHistory, setChainHistory] = useState<any[]>([]);
   const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
   const [lifeProfile, setLifeProfile] = useState<any>(null);
   const [lifeStats, setLifeStats] = useState<StatMap>({});
@@ -621,16 +1466,27 @@ export default function App() {
   const [lifeDay, setLifeDay] = useState(1);
   const [lifeEvent, setLifeEvent] = useState<any>(null);
   const [lifeLog, setLifeLog] = useState<string[]>([]);
+  const [lifeStrategyCounts, setLifeStrategyCounts] = useState<AnyRecord>({});
   const [lifeEnding, setLifeEnding] = useState<any>(null);
+  const [saveAvailable, setSaveAvailable] = useState(() => !!storageGet(SAVE_KEY));
+  const [saveMessage, setSaveMessage] = useState("");
 
   const F = fid ? FACTIONS[fid] : null;
 
   const startGame = useCallback((f) => {
     const q = buildQ(f);
-    setFid(f); setStats({ ...FACTIONS[f].startStats }); setQueue(q); setQi(0);
+    setFid(f); setStats(factionInitialStats(f, { ...FACTIONS[f].startStats })); setQueue(q); setQi(0);
     setDay(1); setAct(1); setTurn(0); setPhase("choose"); setChosen(null); setSudden(null);
     setUsedSudden(new Set()); setStrikes(0); setEnding(null);
     setOil(145); setRecession(22); setNukeAlert(1); setTaiwanFuel(61);
+    setCrisis({ ...DEFAULT_CRISIS });
+    setWarLog([]); setTimeline([]); setDecisionCounts(emptyDecisionCounts()); setUsedFactionEvents(new Set());
+    setFleetAssets(normalizeFleets(f, FACTIONS[f].fleets));
+    setUsedFleetEvents(new Set());
+    setFleetCommandPoints(FLEET_COMMAND_POINTS_PER_DAY);
+    setFleetOrdersToday({});
+    setUsedChainEvents(new Set());
+    setChainHistory([]);
     setScreen("game");
   }, []);
 
@@ -642,12 +1498,70 @@ export default function App() {
     setLifeDay(1);
     setLifeEvent(buildLifeEvent(1, profile));
     setLifeLog([]);
+    setLifeStrategyCounts({});
     setLifeEnding(null);
     setScreen("lifeGame");
   }, [lifeDraft]);
 
+  const saveCampaign = useCallback(() => {
+    const isLife = screen === "lifeGame" || screen === "lifeEnding" || screen === "lifeSetup";
+    const isWar = screen === "game" || screen === "ending";
+    const payload = {
+      version: 2,
+      mode: isLife ? "life" : isWar ? "war" : "menu",
+      savedAt: new Date().toISOString(),
+      screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden: saveSet(usedSudden), strikes, ending,
+      oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents: saveSet(usedFactionEvents),
+      fleetAssets, usedFleetEvents: saveSet(usedFleetEvents), fleetCommandPoints, fleetOrdersToday, usedChainEvents: saveSet(usedChainEvents), chainHistory,
+      lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding,
+    };
+    storageSet(SAVE_KEY, JSON.stringify(payload));
+    setSaveAvailable(true); setSaveMessage(`Saved ${payload.mode} campaign.`);
+  }, [screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
+
+  const loadCampaign = useCallback(() => {
+    const raw = storageGet(SAVE_KEY);
+    if (!raw) { setSaveMessage("No saved campaign found."); setSaveAvailable(false); return; }
+    try {
+      const p = JSON.parse(raw);
+      setFid(p.fid || null); setStats(p.stats || {}); setQueue(p.queue || []); setQi(p.qi || 0); setDay(p.day || 1); setAct(p.act || 1); setTurn(p.turn || 0); setPhase(p.phase || "choose"); setChosen(p.chosen || null); setSudden(p.sudden || null);
+      setUsedSudden(restoreSet(p.usedSudden)); setStrikes(p.strikes || 0); setEnding(p.ending || null);
+      setOil(p.oil || 145); setRecession(p.recession || 22); setNukeAlert(p.nukeAlert || 1); setTaiwanFuel(p.taiwanFuel || 61); setCrisis(p.crisis || { ...DEFAULT_CRISIS });
+      setWarLog(p.warLog || []); setTimeline(p.timeline || []); setDecisionCounts(p.decisionCounts || emptyDecisionCounts()); setUsedFactionEvents(restoreSet(p.usedFactionEvents));
+      setFleetAssets(p.fleetAssets || []); setUsedFleetEvents(restoreSet(p.usedFleetEvents)); setFleetCommandPoints(p.fleetCommandPoints ?? FLEET_COMMAND_POINTS_PER_DAY); setFleetOrdersToday(p.fleetOrdersToday || {});
+      setUsedChainEvents(restoreSet(p.usedChainEvents)); setChainHistory(p.chainHistory || []);
+      setLifeDraft(p.lifeDraft || lifeDraft); setLifeProfile(p.lifeProfile || null); setLifeStats(p.lifeStats || {}); setLifeMarkets(p.lifeMarkets || {}); setLifeDay(p.lifeDay || 1); setLifeEvent(p.lifeEvent || null); setLifeLog(p.lifeLog || []); setLifeStrategyCounts(p.lifeStrategyCounts || {}); setLifeEnding(p.lifeEnding || null);
+      setScreen(p.screen === "lifeSetup" ? "lifeSetup" : p.mode === "life" ? (p.screen === "lifeEnding" ? "lifeEnding" : "lifeGame") : p.screen === "ending" ? "ending" : "game");
+      setSaveAvailable(true); setSaveMessage(`Loaded ${p.mode || "saved"} campaign.`);
+    } catch {
+      setSaveMessage("Save could not be loaded. Clear it and save again.");
+    }
+  }, [lifeDraft]);
+
+  const clearSave = useCallback(() => {
+    storageRemove(SAVE_KEY);
+    setSaveAvailable(false); setSaveMessage("Saved campaign cleared.");
+  }, []);
+
+  const exportSummary = useCallback(() => {
+    const isLife = screen === "lifeGame" || screen === "lifeEnding";
+    const state = { screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts };
+    downloadText(`strait-protocol-${isLife ? "life" : "war"}-summary.txt`, isLife ? lifeSummaryText(state) : warSummaryText(state));
+    setSaveMessage("Campaign summary exported.");
+  }, [screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
+
+  const restartActive = useCallback(() => {
+    if ((screen === "game" || screen === "ending") && fid) { startGame(fid); setSaveMessage("War Room campaign restarted."); return; }
+    if ((screen === "lifeGame" || screen === "lifeEnding") && lifeProfile) {
+      setLifeStats(lifeProfile.stats); setLifeMarkets(lifeProfile.markets); setLifeDay(1); setLifeEvent(buildLifeEvent(1, lifeProfile, lifeProfile.stats)); setLifeLog([]); setLifeStrategyCounts({}); setLifeEnding(null); setScreen("lifeGame"); setSaveMessage("Life campaign restarted.");
+    }
+  }, [screen, fid, startGame, lifeProfile]);
+
   const pickChoice = useCallback((c, sc) => {
-    const ns = apE(stats, c.e);
+    const crisisDelta = crisisImpact(c);
+    const nextCrisis = applyCrisis(crisis, crisisDelta);
+    const pressureDelta = factionPressureImpact(fid, c, nextCrisis);
+    const ns = apE(apE(stats, c.e), pressureDelta);
     const nt = turn + 1;
     const nd = Math.min(day + rnd(2, 4), 45);
     const na = Math.min(Math.ceil(nt / 7), 6);
@@ -655,58 +1569,129 @@ export default function App() {
     if ((c.e.economy || 0) < -10) setRecession(r => Math.min(100, r + 4));
     if ((c.e.fuel || 0) < -5) setOil(o => Math.min(250, o + rnd(5, 15)));
     setTaiwanFuel(t => Math.max(0, t - rnd(1, 4)));
-    setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc });
-    if (Math.random() < 0.27) {
-      const av = SUDDEN.filter(e => !usedSudden.has(e.id));
-      if (av.length) {
-        const se = av[Math.floor(Math.random() * av.length)];
-        setUsedSudden(u => new Set([...u, se.id]));
-        setSudden(se);
-      }
+    const category = categoryOf(c);
+    const entry = logEntryFor(day, act, F, sc, c);
+    const point = turningPointFor(day, act, sc, c, crisisDelta);
+    setFleetCommandPoints(FLEET_COMMAND_POINTS_PER_DAY);
+    setFleetOrdersToday({});
+    setCrisis(nextCrisis);
+    setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
+    setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
+    setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+    const nextCounts = { ...decisionCounts, [category]: (decisionCounts[category] || 0) + 1 };
+    setDecisionCounts(nextCounts);
+    setWarLog(l => [...l, entry].slice(-16));
+    setTimeline(t => [...t, point].slice(-10));
+    setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc, crisisDelta, pressureDelta, category });
+    const factionEvent = factionTriggeredEvent(fid, ns, nextCrisis, usedFactionEvents);
+    const chainEvent = pickChainEvent({ fid, stats: ns, crisis: nextCrisis, fleets: fleetAssets, act: na, day: nd, counts: nextCounts, lastChoice: c, used: usedChainEvents, history: chainHistory });
+    const suddenChance = 0.18 + Math.max(nextCrisis.escalationLevel, nextCrisis.financialContagion, nextCrisis.mediaPanic, nextCrisis.cyberDisruption, 0) / 280;
+    if (factionEvent) {
+      setUsedFactionEvents(u => new Set([...u, factionEvent.id]));
+      setSudden(factionEvent);
+    } else if (chainEvent) {
+      setUsedChainEvents(u => new Set([...u, chainEvent.id]));
+      setChainHistory(h => [...h, { id: chainEvent.id, t: chainEvent.t, day: nd, act: na, score: chainEvent.score }].slice(-12));
+      setWarLog(l => [...l, `D${nd} · Crisis Chain: ${chainEvent.t}. ${chainEvent.d}`].slice(-16));
+      setTimeline(t => [...t, { day: nd, act: na, title: "Crisis Chain", body: `${chainEvent.t} · score ${chainEvent.score}` }].slice(-10));
+      setSudden(chainEvent);
+    } else if (Math.random() < suddenChance) {
+      const se = pickSuddenEvent(usedSudden, nextCrisis);
+      if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden(se); }
     }
     setPhase("result");
-  }, [stats, turn, day, usedSudden]);
+  }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, usedChainEvents, chainHistory, decisionCounts, fleetAssets, recession, nukeAlert]);
+
+  const handleFleetAction = useCallback((idx: number, action: string) => {
+    const fl = fleetAssets[idx];
+    if (!fl || !fid) return;
+    const fleetKey = fl.id || `${fid}-${idx}`;
+    const cost = fleetActionCost(action);
+    const blockReason = fleetOrdersToday[fleetKey]
+      ? "This fleet already received orders today"
+      : cost > fleetCommandPoints
+        ? "No Fleet Command Points remaining"
+        : fleetStatusBlockReason(fl, action);
+    if (blockReason) {
+      setWarLog(l => [...l, `D${day} - Fleet order blocked: ${blockReason}. ${fl.name} could not execute ${action}.`].slice(-16));
+      return;
+    }
+    const effect = fleetActionEffect(fid, fl, action);
+    const nextFleet = applyFleetPatch(fl, effect);
+    const nextFleets = fleetAssets.map((f, i) => i === idx ? nextFleet : f);
+    const nextStats = apE(stats, effect.stats || {});
+    const nextCrisis = applyCrisis(crisis, effect.crisis || {});
+    const summary = fleetSummary(nextFleets);
+    setFleetCommandPoints(p => Math.max(0, p - cost));
+    setFleetOrdersToday(o => ({ ...o, [fleetKey]: action }));
+    setFleetAssets(nextFleets);
+    setStats(nextStats);
+    setCrisis(nextCrisis);
+    setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
+    setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
+    setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+    setWarLog(l => [...l, `D${day} · Fleet: ${action} ordered for ${fl.name}. Mission now "${nextFleet.mission}". Sea control ${summary.seaControl}.`].slice(-16));
+    setTimeline(t => [...t, { day, act, title: "Fleet Action", body: `${action}: ${fl.name} · readiness ${nextFleet.readiness}, fuel ${nextFleet.fuel}` }].slice(-10));
+  }, [fleetAssets, fid, stats, crisis, recession, nukeAlert, day, act, fleetCommandPoints, fleetOrdersToday]);
 
   const nextTurn = useCallback(() => {
     let ns = stats;
-    if (sudden) { ns = apE(stats, sudden.e); setStats(ns); setSudden(null); }
+    if (sudden) {
+      ns = apE(stats, sudden.e);
+      const nextCrisis = applyCrisis(crisis, sudden.crisis || SUDDEN_CRISIS_EFFECTS[sudden.id] || {});
+      setStats(ns); setCrisis(nextCrisis); setSudden(null);
+      setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
+      setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
+      setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+    }
+    const fleetEvent = fleetTriggeredEvent(fid, fleetAssets, usedFleetEvents);
+    if (!sudden && fleetEvent) {
+      setUsedFleetEvents(u => new Set([...u, fleetEvent.id]));
+      setSudden(fleetEvent);
+    }
     const ni = qi + 1;
     if (turn >= 42 || day >= 45 || ni >= queue.length) {
-      setEnding(getEnding(fid, ns)); setScreen("ending"); return;
+      setEnding(getEnding(fid, ns, { crisis, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets, chains: chainHistory })); setScreen("ending"); return;
     }
     setQi(ni); setPhase("choose");
-  }, [stats, sudden, qi, turn, day, queue, fid]);
+  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes, fleetAssets, usedFleetEvents, chainHistory]);
 
   const pickLifeChoice = useCallback((choice) => {
     if (!lifeProfile || !lifeEvent) return;
     const resolved = resolveLifeChoice(lifeStats, lifeMarkets, lifeEvent, choice, lifeDay);
     const nextLog = [...lifeLog, resolved.entry].slice(-12);
+    const nextStrategies = { ...lifeStrategyCounts, [choice.strategy || "general"]: (lifeStrategyCounts[choice.strategy || "general"] || 0) + 1 };
+    setLifeStrategyCounts(nextStrategies);
     if (lifeDay >= lifeProfile.length) {
       setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
-      setLifeEnding(getLifeEnding(lifeProfile, resolved.stats)); setScreen("lifeEnding"); return;
+      setLifeEnding(getLifeEnding(lifeProfile, resolved.stats, { strategyCounts: nextStrategies })); setScreen("lifeEnding"); return;
     }
     const nd = lifeDay + 1;
     setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
-    setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile));
-  }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog]);
+    setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile, resolved.stats));
+  }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
 
-  if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} /></div>;
+  const activeControls = <CampaignControls mode={screen === "lifeGame" || screen === "lifeEnding" ? "Life Campaign" : "War Room Campaign"} canLoad={saveAvailable} message={saveMessage} onSave={saveCampaign} onLoad={loadCampaign} onClear={clearSave} onExport={exportSummary} onRestart={restartActive} />;
+
+  if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} canLoad={saveAvailable} saveMessage={saveMessage} onLoad={loadCampaign} onClear={clearSave} /></div>;
   if (screen === "lifeSetup") return <LifeSetupScreen draft={lifeDraft} setDraft={setLifeDraft} onStart={startLife} onBack={() => setScreen("menu")} />;
-  if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} />;
-  if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
+  if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} controls={activeControls} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} />;
+  if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} controls={activeControls} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
   if (screen === "faction") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<FactionScreen onPick={startGame} /></div>;
-  if (screen === "ending") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<EndingScreen F={F} ending={ending} stats={stats} onRestart={() => setScreen("faction")} /></div>;
+  if (screen === "ending") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<EndingScreen F={F} ending={ending} stats={stats} controls={activeControls} onRestart={() => setScreen("faction")} /></div>;
   if (!F) return null;
 
   const sc = queue[qi];
   if (!sc) return null;
 
   const nukeColors = ["#1D9E75", "#BA7517", "#BA7517", "#E24B4A", "#A32D2D"];
+  const fleetOps = fleetSummary(fleetAssets);
 
   return (
     <div style={S.root}>
       <ManualButton onClick={() => setManualOpen(true)} />
       {manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}
+      {activeControls}
       {/* Header */}
       <div style={{ background: "rgba(255,255,255,0.84)", borderBottom: "0.5px solid var(--color-border-tertiary)", padding: "8px 14px", boxShadow: "0 6px 20px rgba(20,35,45,0.05)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "6px" }}>
@@ -729,6 +1714,9 @@ export default function App() {
         </div>
       </div>
 
+      <StrategicDashboard F={F} fid={fid} stats={stats} crisis={crisis} counts={decisionCounts} />
+      <ActProgress act={act} day={day} F={F} />
+
       {/* Primary stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: "5px", padding: "8px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", maxWidth: "1120px", margin: "0 auto" }}>
         {Object.entries(stats).slice(0, 6).map(([k, v]) => <StatBar key={k} label={k} value={v} />)}
@@ -736,7 +1724,7 @@ export default function App() {
 
       {/* Secondary stats */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", padding: "4px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
-        {Object.entries(stats).slice(6).map(([k, v]) => (
+        {Object.entries(stats).slice(6).filter(([k]) => !factionPressureKeys(fid).includes(k)).map(([k, v]) => (
           <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "10px", background: "var(--color-background-primary)", border: `0.5px solid ${vBg(v)}` }}>
             <span style={{ fontWeight: 500, color: vC(v) }}>{v}</span>
             <span style={{ color: "var(--color-text-secondary)" }}> {k}</span>
@@ -744,12 +1732,29 @@ export default function App() {
         ))}
       </div>
 
+      {/* Global crisis state */}
+      <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(244,247,248,0.82)" }}>
+        <div style={{ maxWidth: "1120px", margin: "0 auto" }}>
+          <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Global Crisis Board</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(132px,1fr))", gap: "5px" }}>
+            {Object.entries(CRISIS_META).map(([id]) => <CrisisTile key={id} id={id} value={crisis[id]} />)}
+          </div>
+        </div>
+      </div>
+
       {/* Fleet status */}
       <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.5)" }}>
         <div style={{ maxWidth: "1120px", margin: "0 auto" }}>
         <div style={{ fontSize: "9px", fontWeight: 500, color: "var(--color-text-secondary)", marginBottom: "5px", textTransform: "uppercase", letterSpacing: "0.05em" }}>⚓ Fleet Status · Transit ETA · Supply Days</div>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: fleetCommandPoints > 0 ? "#185FA5" : "#A32D2D", background: fleetCommandPoints > 0 ? "#E6F1FB" : "#FCEBEB", border: `0.5px solid ${fleetCommandPoints > 0 ? "#85B7EB" : "#F09595"}`, borderRadius: "999px", padding: "3px 8px", display: "inline-block", marginBottom: "6px" }}>Fleet Command Points: {fleetCommandPoints}/{FLEET_COMMAND_POINTS_PER_DAY}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: "5px", marginBottom: "6px" }}>
+          <PressureMetric id="seaControl" value={fleetOps.seaControl} meta={{ label: "Sea Control" }} />
+          <PressureMetric id="fleetReadiness" value={fleetOps.readiness} meta={{ label: "Fleet Readiness" }} />
+          <PressureMetric id="fleetSupply" value={fleetOps.supply} meta={{ label: "Supply Depth" }} />
+          <PressureMetric id="fleetThreat" value={fleetOps.threat} meta={{ label: "Fleet Threat", riskHigh: true }} />
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(270px,1fr))", gap: "5px" }}>
-          {F.fleets.map((fl, i) => <FleetCard key={i} fl={fl} />)}
+          {fleetAssets.map((fl, i) => <FleetOpsCard key={fl.id || i} fl={fl} commandPoints={fleetCommandPoints} orderedToday={!!fleetOrdersToday[fl.id || `${fid}-${i}`]} onAction={(a) => handleFleetAction(i, a)} />)}
         </div>
         </div>
       </div>
@@ -761,7 +1766,8 @@ export default function App() {
       </div>
 
       {/* Main content */}
-      <div style={{ ...S.shell, paddingTop: "12px" }}>
+      <div style={{ ...S.shell, paddingTop: "12px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "10px", alignItems: "start" }}>
+        <div>
         {phase === "choose" && (
           <div style={{ ...S.panel, padding: "14px" }}>
             <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Active Crisis Card</div>
@@ -780,7 +1786,10 @@ export default function App() {
                   onMouseLeave={e => { e.currentTarget.style.background = "var(--color-background-primary)"; e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; }}
                 >
                   <Tag tag={c.tag} strike={c.strike} />
-                  <span>{c.l}</span>
+                  <span style={{ display: "grid", gap: "3px" }}>
+                    <span>{c.l}</span>
+                    <span style={{ fontSize: "9px", color: "var(--color-text-tertiary)", lineHeight: 1.35 }}>{previewFor(c)}</span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -796,12 +1805,32 @@ export default function App() {
                 <span style={{ color: "var(--color-text-primary)" }}>{chosen.c.l}</span>
               </div>
               <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "8px" }}>{chosen.c.o}</div>
+              <div style={{ fontSize: "10px", color: F.color, lineHeight: 1.55, marginBottom: "8px", background: F.bg, border: `0.5px solid ${F.bd}`, borderRadius: "var(--border-radius-md)", padding: "7px 9px" }}><b>Why this happened:</b> {whyWarChoice(chosen, crisis)}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
                 {Object.entries(chosen.c.e as StatMap).map(([k, v]) => v !== 0 ? (
                   <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "6px", background: v > 0 ? "#EAF3DE" : "#FCEBEB", border: `0.5px solid ${v > 0 ? "#97C459" : "#F09595"}`, color: v > 0 ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>
                     {v > 0 ? "+" : ""}{v} {k}
                   </span>
                 ) : null)}
+                {Object.entries((chosen.pressureDelta || {}) as StatMap).map(([k, v]) => {
+                  const meta = factionMeta(fid).stats[k] || {};
+                  const n = Number(v);
+                  const goodMove = meta.riskHigh ? n < 0 : n > 0;
+                  return n !== 0 ? (
+                    <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "6px", background: goodMove ? "#EAF3DE" : "#FCEBEB", border: `0.5px solid ${goodMove ? "#97C459" : "#F09595"}`, color: goodMove ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>
+                      {n > 0 ? "+" : ""}{n} {meta.label || k}
+                    </span>
+                  ) : null;
+                })}
+                {Object.entries(chosen.crisisDelta as StatMap).map(([k, v]) => {
+                  const n = Number(v);
+                  const goodMove = CRISIS_META[k]?.goodHigh ? n > 0 : n < 0;
+                  return n !== 0 ? (
+                    <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "6px", background: goodMove ? "#EAF3DE" : "#FCEBEB", border: `0.5px solid ${goodMove ? "#97C459" : "#F09595"}`, color: goodMove ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>
+                      {n > 0 ? "+" : ""}{n} {CRISIS_META[k]?.label || k}
+                    </span>
+                  ) : null;
+                })}
               </div>
             </div>
 
@@ -815,6 +1844,15 @@ export default function App() {
                       {v > 0 ? "+" : ""}{v} {k}
                     </span>
                   ) : null)}
+                  {Object.entries((sudden.crisis || SUDDEN_CRISIS_EFFECTS[sudden.id] || {}) as StatMap).map(([k, v]) => {
+                    const n = Number(v);
+                    const goodMove = CRISIS_META[k]?.goodHigh ? n > 0 : n < 0;
+                    return n !== 0 ? (
+                      <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "6px", background: goodMove ? "#EAF3DE" : "#FCEBEB", border: `0.5px solid ${goodMove ? "#97C459" : "#F09595"}`, color: goodMove ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>
+                        {n > 0 ? "+" : ""}{n} {CRISIS_META[k]?.label || k}
+                      </span>
+                    ) : null;
+                  })}
                 </div>
               </div>
             )}
@@ -828,6 +1866,8 @@ export default function App() {
             </button>
           </div>
         )}
+        </div>
+        <WarRoomSidePanel log={warLog} timeline={timeline} />
       </div>
     </div>
   );
