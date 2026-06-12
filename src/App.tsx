@@ -470,34 +470,66 @@ function pickSuddenEvent(used: Set<string>, crisis: StatMap) {
   return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 }
 
+const LIFE_BASE_STATS: StatMap = { cash: 52, debt: 28, monthlyIncome: 55, jobSecurity: 58, careerCapital: 45, familyStability: 58, health: 72, stress: 34, morale: 62, foodSupply: 50, fuelAccess: 48, medicineAccess: 54, housingSecurity: 58, internetAccess: 72, legalRisk: 18, migrationReadiness: 34, reputation: 50, emergencyPreparedness: 42 };
 const LIFE_SPAWNS: AnyRecord = {
-  singapore: { id: "singapore", name: "Singapore", note: "Orderly, expensive, heavily watched.", stats: { health: 76, morale: 68, money: 58, supplies: 62, family: 64, reputation: 58, risk: 28, debt: 22 }, markets: { food: 112, fuel: 138, rent: 125, medicine: 118, usd: 104, jobs: 72 } },
-  taipei: { id: "taipei", name: "Taipei", note: "Closest to the storm, best information, highest daily risk.", stats: { health: 68, morale: 62, money: 46, supplies: 48, family: 70, reputation: 55, risk: 56, debt: 28 }, markets: { food: 138, fuel: 168, rent: 116, medicine: 142, usd: 118, jobs: 48 } },
-  manila: { id: "manila", name: "Manila", note: "Family networks matter. Prices move fast.", stats: { health: 70, morale: 66, money: 42, supplies: 45, family: 76, reputation: 58, risk: 44, debt: 34 }, markets: { food: 128, fuel: 152, rent: 104, medicine: 126, usd: 112, jobs: 55 } },
-  jakarta: { id: "jakarta", name: "Jakarta", note: "Fuel, logistics, and informal markets dominate.", stats: { health: 72, morale: 64, money: 48, supplies: 52, family: 66, reputation: 54, risk: 38, debt: 30 }, markets: { food: 122, fuel: 160, rent: 98, medicine: 121, usd: 109, jobs: 58 } },
+  kl_pj: { id: "kl_pj", name: "Kuala Lumpur/PJ", note: "Family obligations, car dependence, and price shocks all matter.", stats: { cash: -2, debt: 4, fuelAccess: -5, familyStability: 5, housingSecurity: 3 }, markets: { food: 116, fuel: 144, rent: 112, medicine: 116, usd: 111, jobs: 60 } },
+  singapore: { id: "singapore", name: "Singapore", note: "Orderly, expensive, resilient, and heavily watched.", stats: { cash: 8, monthlyIncome: 8, housingSecurity: -6, internetAccess: 8, legalRisk: -4 }, markets: { food: 112, fuel: 138, rent: 132, medicine: 118, usd: 104, jobs: 72 } },
+  taipei: { id: "taipei", name: "Taipei", note: "Closest to the storm, best information, highest daily risk.", stats: { stress: 14, migrationReadiness: 8, foodSupply: -7, fuelAccess: -9, morale: -5 }, markets: { food: 138, fuel: 168, rent: 116, medicine: 142, usd: 118, jobs: 48 } },
+  hong_kong: { id: "hong_kong", name: "Hong Kong", note: "Finance nerves, migration channels, and legal exposure collide.", stats: { cash: 5, careerCapital: 6, legalRisk: 7, migrationReadiness: 8, housingSecurity: -7 }, markets: { food: 126, fuel: 150, rent: 148, medicine: 128, usd: 112, jobs: 58 } },
+  shanghai: { id: "shanghai", name: "Shanghai/Shenzhen", note: "Factory chains, censorship risk, and tech layoffs move fast.", stats: { monthlyIncome: 8, internetAccess: -6, legalRisk: 8, jobSecurity: -5, careerCapital: 8 }, markets: { food: 122, fuel: 142, rent: 130, medicine: 124, usd: 116, jobs: 54 } },
+  manila: { id: "manila", name: "Manila", note: "Family networks matter. Prices move fast.", stats: { cash: -8, familyStability: 9, debt: 8, foodSupply: -4, reputation: 3 }, markets: { food: 128, fuel: 152, rent: 104, medicine: 126, usd: 112, jobs: 55 } },
+  jakarta: { id: "jakarta", name: "Jakarta", note: "Fuel, logistics, and informal markets dominate.", stats: { fuelAccess: -7, foodSupply: -3, legalRisk: 3, emergencyPreparedness: 4 }, markets: { food: 122, fuel: 160, rent: 98, medicine: 121, usd: 109, jobs: 58 } },
+  tokyo: { id: "tokyo", name: "Tokyo", note: "Safe infrastructure, expensive rent, and Korea/Taiwan anxiety.", stats: { cash: 3, housingSecurity: -4, emergencyPreparedness: 6, stress: 5 }, markets: { food: 118, fuel: 148, rent: 138, medicine: 116, usd: 108, jobs: 66 } },
+  seoul: { id: "seoul", name: "Seoul", note: "Cyber alerts and missile anxiety shadow a strong job market.", stats: { internetAccess: 5, stress: 8, migrationReadiness: 4, jobSecurity: 2 }, markets: { food: 120, fuel: 146, rent: 124, medicine: 118, usd: 109, jobs: 64 } },
+  dubai: { id: "dubai", name: "Dubai", note: "Cash opportunity, visa precarity, and oil money in the same room.", stats: { cash: 10, monthlyIncome: 10, legalRisk: 4, migrationReadiness: 10, familyStability: -4 }, markets: { food: 124, fuel: 112, rent: 142, medicine: 124, usd: 101, jobs: 70 } },
+  london: { id: "london", name: "London", note: "Finance exposure, high rent, and strong institutions.", stats: { careerCapital: 9, cash: 4, housingSecurity: -9, debt: 4, legalRisk: -2 }, markets: { food: 124, fuel: 156, rent: 154, medicine: 112, usd: 107, jobs: 62 } },
+  new_york: { id: "new_york", name: "New York", note: "Markets, media panic, rent, and career upside are all amplified.", stats: { careerCapital: 12, cash: 5, debt: 7, housingSecurity: -10, stress: 7 }, markets: { food: 126, fuel: 150, rent: 160, medicine: 130, usd: 100, jobs: 66 } },
 };
 
 const LIFE_ROLES: AnyRecord = {
-  nurse: { id: "nurse", name: "Emergency Nurse", note: "Trusted, exhausted, exposed to shortages.", stats: { health: -4, morale: -2, money: 4, supplies: 2, family: -3, reputation: 12, risk: 8, debt: -2 }, event: "Hospital triage board asks you to take another double shift.", roleChoice: { l: "Work the double shift and trade favors for medicine", tag: "CARE", e: { health: -7, morale: -4, money: 5, supplies: 8, reputation: 9, risk: 5 }, m: { medicine: -2 }, o: "You are exhausted, but your name opens pharmacy doors." } },
-  trader: { id: "trader", name: "Market Trader", note: "Fast cash, fast enemies.", stats: { health: 0, morale: 2, money: 12, supplies: -4, family: -2, reputation: -5, risk: 10, debt: -4 }, event: "A broker offers advance access to tomorrow's fuel allocation list.", roleChoice: { l: "Buy the allocation tip and flip fuel contracts", tag: "DEAL", e: { money: 14, reputation: -8, risk: 10, debt: -4 }, m: { fuel: 6, usd: 2 }, o: "The trade pays, but people notice who profited." } },
-  parent: { id: "parent", name: "Single Parent", note: "Every decision passes through the family table.", stats: { health: 2, morale: 0, money: -6, supplies: 5, family: 14, reputation: 3, risk: -3, debt: 8 }, event: "Your child's school closes and asks families to form rotating care groups.", roleChoice: { l: "Organize a care circle with neighbors", tag: "HOME", e: { family: 10, reputation: 8, morale: 4, money: -4, supplies: -3 }, m: { jobs: -2 }, o: "The household gets harder to run, but no one is alone." } },
-  analyst: { id: "analyst", name: "Risk Analyst", note: "Information is your edge. Overthinking is your tax.", stats: { health: -2, morale: -3, money: 9, supplies: 0, family: -4, reputation: 5, risk: -2, debt: -5 }, event: "A client wants a private evacuation probability model by midnight.", roleChoice: { l: "Sell the model and reserve a foreign account", tag: "INFO", e: { money: 11, morale: -4, family: -5, reputation: 3, risk: -4 }, m: { usd: 4 }, o: "Your dashboard is cold, accurate, and profitable." } },
+  finance: { id: "finance", name: "Finance Worker", sector: "Finance", income: 74, note: "Markets pay well until they do not.", stats: { cash: 10, monthlyIncome: 14, jobSecurity: -4, stress: 8, careerCapital: 8, debt: 4 }, event: "Your desk is asked to price Taiwan exposure before markets reopen.", roleChoice: { l: "Hedge client books and ask for crisis bonus", tag: "FIN", e: { cash: 10, careerCapital: 6, stress: 6, reputation: 2 }, m: { usd: 3 }, o: "You look useful when everyone else looks scared." } },
+  tech: { id: "tech", name: "Tech Worker", sector: "Technology", income: 68, note: "Semiconductors and cloud outages decide your week.", stats: { monthlyIncome: 10, internetAccess: 8, careerCapital: 9, jobSecurity: -2, stress: 3 }, event: "Your product lead freezes the roadmap and asks who can keep systems alive.", roleChoice: { l: "Volunteer for crisis reliability work", tag: "CYB", e: { careerCapital: 9, jobSecurity: 5, stress: 6, internetAccess: 2 }, m: { jobs: 2 }, o: "The pager owns your night, but leadership learns your name." } },
+  cyber: { id: "cyber", name: "Cybersecurity Consultant", sector: "Cybersecurity", income: 72, note: "Every bank and port suddenly wants you.", stats: { monthlyIncome: 12, careerCapital: 10, stress: 6, legalRisk: 3, internetAccess: 7 }, event: "A bank asks for an emergency incident-response retainer by midnight.", roleChoice: { l: "Take the retainer and sleep later", tag: "CYB", e: { cash: 12, careerCapital: 8, stress: 8, reputation: 4 }, m: { jobs: 3 }, o: "You become expensive because the alternative is worse." } },
+  compliance: { id: "compliance", name: "Bank Risk/Compliance Officer", sector: "Banking", income: 64, note: "Sanctions, liquidity, and regulators all land on your desk.", stats: { monthlyIncome: 8, jobSecurity: 7, stress: 7, legalRisk: -2, careerCapital: 5 }, event: "Regulators request an emergency sanctions and liquidity attestation.", roleChoice: { l: "Build the control room spreadsheet yourself", tag: "FIN", e: { jobSecurity: 8, careerCapital: 6, stress: 7, legalRisk: -4 }, m: { jobs: 1 }, o: "It is dull, vital, and politically protective." } },
+  civil: { id: "civil", name: "Civil Servant", sector: "Government", income: 50, note: "Stable pay, public pressure, low upside.", stats: { monthlyIncome: -2, jobSecurity: 12, reputation: 5, legalRisk: -4, stress: 3 }, event: "Your ministry opens a public hotline for shortages and evacuation rumors.", roleChoice: { l: "Take hotline command and coordinate agencies", tag: "POL", e: { reputation: 8, jobSecurity: 5, stress: 6, morale: 3 }, m: { jobs: 1 }, o: "People yell because they think someone is finally listening." } },
+  port: { id: "port", name: "Port/Logistics Worker", sector: "Logistics", income: 54, note: "Container delays become your personal economy.", stats: { monthlyIncome: 2, jobSecurity: 4, fuelAccess: -2, emergencyPreparedness: 5, health: -2 }, event: "A container backlog turns into an overnight overtime call.", roleChoice: { l: "Work the port surge and secure supply favors", tag: "LOG", e: { cash: 7, foodSupply: 7, fuelAccess: 4, stress: 5, health: -3 }, m: { food: -2 }, o: "The work is hard, but your pantry gets less theoretical." } },
+  nurse: { id: "nurse", name: "Nurse", sector: "Healthcare", income: 52, note: "Trusted, exhausted, exposed to shortages.", stats: { health: -4, stress: 9, monthlyIncome: 1, medicineAccess: 7, reputation: 12, jobSecurity: 10 }, event: "Hospital triage asks you to take another double shift.", roleChoice: { l: "Work the double shift and trade favors for medicine", tag: "CARE", e: { health: -7, stress: 8, cash: 5, medicineAccess: 8, reputation: 9 }, m: { medicine: -2 }, o: "You are exhausted, but your name opens pharmacy doors." } },
+  business: { id: "business", name: "Small Business Owner", sector: "Retail", income: 48, note: "Cashflow is survival. Reputation is collateral.", stats: { cash: 5, debt: 10, jobSecurity: -8, reputation: 6, stress: 7 }, event: "Suppliers demand cash up front before the next shipment.", roleChoice: { l: "Prepay inventory and raise prices carefully", tag: "DEAL", e: { cash: -8, foodSupply: 5, reputation: -2, careerCapital: 5, stress: 4 }, m: { food: 3 }, o: "You keep shelves stocked and customers suspicious." } },
+  journalist: { id: "journalist", name: "Journalist", sector: "Media", income: 42, note: "Truth, access, and legal risk wrestle daily.", stats: { monthlyIncome: -6, careerCapital: 8, reputation: 8, legalRisk: 8, stress: 5 }, event: "An editor wants verified footage from a restricted port zone.", roleChoice: { l: "Verify the story through safe sources", tag: "INT", e: { reputation: 8, careerCapital: 5, legalRisk: -2, stress: 4 }, m: { usd: 1 }, o: "You publish slower, cleaner, and harder to discredit." } },
+  student: { id: "student", name: "Student", sector: "Education", income: 28, note: "Low cash, high optionality, fragile housing.", stats: { cash: -12, debt: 12, monthlyIncome: -18, careerCapital: 8, migrationReadiness: 6, housingSecurity: -4 }, event: "Your university shifts classes online and opens emergency aid forms.", roleChoice: { l: "Apply for aid and build a remote portfolio", tag: "WORK", e: { cash: 5, careerCapital: 8, internetAccess: 4, stress: 3 }, m: { jobs: 1 }, o: "You turn disruption into proof that you can work anywhere." } },
+  migrant: { id: "migrant", name: "Migrant Worker", sector: "Essential Labor", income: 34, note: "Remittances, documents, and housing risk dominate.", stats: { cash: -8, monthlyIncome: -10, familyStability: 10, housingSecurity: -8, legalRisk: 8, migrationReadiness: -4 }, event: "Your dorm manager warns that work permits may be checked after curfew.", roleChoice: { l: "Avoid the raid and protect documents", tag: "HOME", e: { legalRisk: -8, stress: 5, cash: -3, migrationReadiness: 5 }, m: { jobs: -1 }, o: "You lose a shift and keep your papers." } },
+  crypto: { id: "crypto", name: "Crypto Speculator", sector: "Crypto", income: 44, note: "Volatility can save you or eat the floor.", stats: { cash: 8, debt: 6, monthlyIncome: -6, legalRisk: 6, stress: 8, careerCapital: -2 }, event: "A stablecoin depeg creates a violent arbitrage window.", roleChoice: { l: "Arbitrage the depeg with strict stop-loss", tag: "FIN", e: { cash: 12, stress: 7, legalRisk: 4, reputation: -3 }, m: { usd: 4 }, o: "The trade works because you exit before becoming the exit." } },
 };
 
 const LIFE_PHILOSOPHIES: AnyRecord = {
-  protector: { id: "protector", name: "Protect the People Close to Me", stats: { family: 10, supplies: 4, money: -4, reputation: 2 }, note: "Family and friends before upside." },
-  opportunist: { id: "opportunist", name: "Chaos Is a Ladder", stats: { money: 10, reputation: -6, risk: 8, morale: 2 }, note: "Find the spread, take the spread." },
-  civic: { id: "civic", name: "Hold the Community Together", stats: { reputation: 10, morale: 4, supplies: -3, risk: 3 }, note: "Mutual aid beats panic." },
-  exit: { id: "exit", name: "Prepare an Exit Route", stats: { risk: -6, money: -2, family: -2, supplies: 8 }, note: "Keep documents ready and options open." },
+  protector: { id: "protector", name: "Protect the People Close to Me", stats: { familyStability: 10, foodSupply: 4, cash: -4, reputation: 2, emergencyPreparedness: 4 }, note: "Family and friends before upside." },
+  opportunist: { id: "opportunist", name: "Chaos Is a Ladder", stats: { cash: 10, reputation: -6, legalRisk: 7, morale: 2, careerCapital: 4 }, note: "Find the spread, take the spread." },
+  civic: { id: "civic", name: "Hold the Community Together", stats: { reputation: 10, morale: 4, foodSupply: -3, stress: 3, familyStability: 3 }, note: "Mutual aid beats panic." },
+  exit: { id: "exit", name: "Prepare an Exit Route", stats: { migrationReadiness: 14, cash: -2, familyStability: -2, emergencyPreparedness: 8, legalRisk: -2 }, note: "Keep documents ready and options open." },
 };
 
 const LIFE_LOCAL_EVENTS: AnyRecord[] = [
-  { t: "Rolling Blackout", d: "District power cuts expand from two hours to all evening. Refrigerated food and remote work are both at risk.", e: { morale: -4, supplies: -3 }, m: { fuel: 3, food: 2 } },
-  { t: "Bank Queue Shock", d: "ATMs limit withdrawals. Rumors spread that two regional banks are delaying transfers.", e: { morale: -3, money: -3, risk: 3 }, m: { usd: 5, jobs: -2 } },
-  { t: "Fuel Ration Line", d: "Taxi fleets and delivery riders queue overnight. Police warn against hoarding.", e: { supplies: -2, risk: 4 }, m: { fuel: 8, food: 2 } },
-  { t: "Clinic Shortage", d: "Insulin, antibiotics, and blood pressure medicine are suddenly hard to find.", e: { health: -4, morale: -2 }, m: { medicine: 7 } },
-  { t: "Port Delay", d: "Container inspections triple. Fresh goods sit in port while prices jump in wet markets.", e: { supplies: -5, money: -2 }, m: { food: 6, jobs: -1 } },
-  { t: "Curfew Rumor", d: "The government denies a curfew while quietly putting riot police near transit hubs.", e: { morale: -3, risk: 5 }, m: { rent: 1, usd: 2 } },
+  { t: "Rolling Blackout", d: "District power cuts expand from two hours to all evening. Refrigerated food and remote work are both at risk.", e: { morale: -4, foodSupply: -3, internetAccess: -6 }, m: { fuel: 3, food: 2 } },
+  { t: "Bank Queue Shock", d: "ATMs limit withdrawals. Rumors spread that two regional banks are delaying transfers.", e: { morale: -3, cash: -3, legalRisk: 2 }, m: { usd: 5, jobs: -2 } },
+  { t: "Fuel Ration Line", d: "Taxi fleets and delivery riders queue overnight. Police warn against hoarding.", e: { fuelAccess: -7, stress: 4, foodSupply: -2 }, m: { fuel: 8, food: 2 } },
+  { t: "Clinic Shortage", d: "Insulin, antibiotics, and blood pressure medicine are suddenly hard to find.", e: { health: -4, morale: -2, medicineAccess: -8 }, m: { medicine: 7 } },
+  { t: "Port Delay", d: "Container inspections triple. Fresh goods sit in port while prices jump in wet markets.", e: { foodSupply: -5, cash: -2, jobSecurity: -2 }, m: { food: 6, jobs: -1 } },
+  { t: "Curfew Rumor", d: "The government denies a curfew while quietly putting police near transit hubs.", e: { morale: -3, legalRisk: 5, stress: 4 }, m: { rent: 1, usd: 2 } },
+  { t: "Evacuation Chat Flood", d: "Private chats fill with routes, visa agents, and bad information. The loudest advice is not the safest.", e: { migrationReadiness: 2, stress: 5, cash: -2 }, m: { usd: 3, rent: 2 } },
+  { t: "Community Aid Table", d: "Neighbors set up a shared supply table downstairs. It works only if enough people contribute.", e: { reputation: 3, morale: 2, foodSupply: -2 }, m: { food: -1 } },
+];
+
+const LIFE_ACTIONS: AnyRecord[] = [
+  { l: "Work overtime", tag: "WORK", e: { cash: 8, monthlyIncome: 1, jobSecurity: 3, stress: 7, health: -3, familyStability: -3 }, m: { jobs: 1 }, o: "You trade body and time for cashflow." },
+  { l: "Save cash", tag: "FIN", e: { cash: 5, morale: -2, foodSupply: -2, emergencyPreparedness: 2 }, m: {}, o: "You spend less than feels comfortable and keep options open." },
+  { l: "Buy supplies", tag: "HOME", e: { cash: -7, foodSupply: 9, medicineAccess: 3, emergencyPreparedness: 6 }, m: { food: 2, medicine: 1 }, o: "Your shelves look less dramatic and more useful." },
+  { l: "Help family", tag: "CARE", e: { cash: -5, familyStability: 10, morale: 3, stress: 2, reputation: 2 }, m: {}, o: "Someone close to you sleeps better tonight." },
+  { l: "Build skills", tag: "WORK", e: { careerCapital: 9, jobSecurity: 2, internetAccess: -2, stress: 3, cash: -2 }, m: { jobs: 1 }, o: "It does not solve today, but it changes who can hire you tomorrow." },
+  { l: "Apply overseas", tag: "DIP", e: { migrationReadiness: 10, cash: -5, stress: 4, familyStability: -2, careerCapital: 2 }, m: { usd: 2 }, o: "Forms, scans, references, and one more possible door." },
+  { l: "Invest/speculate", tag: "FIN", e: { cash: 9, debt: -2, stress: 7, legalRisk: 5, reputation: -4 }, m: { usd: 3 }, o: "You catch a volatile move and pretend it was all plan." },
+  { l: "Join community aid", tag: "CARE", e: { reputation: 10, morale: 5, foodSupply: -4, stress: 3, familyStability: 3 }, m: { food: -1 }, o: "The network becomes part of your emergency kit." },
+  { l: "Avoid risk", tag: "HOME", e: { legalRisk: -6, stress: -4, health: 2, cash: -2, careerCapital: -2 }, m: {}, o: "You leave upside on the table and keep trouble outside the door." },
+  { l: "Take risky opportunity", tag: "DEAL", e: { cash: 12, careerCapital: 5, stress: 8, legalRisk: 8, reputation: -3 }, m: { usd: 3 }, o: "It pays because not everyone would touch it." },
 ];
 
 const LIFE_LENGTHS = [14, 30, 45, 60];
@@ -598,7 +630,9 @@ function buildQ(fid) {
 }
 
 const lc = (v, max = 100) => Math.max(0, Math.min(max, Math.round(v)));
-const lifeStatMax = (k) => k === "money" || k === "debt" ? 160 : 100;
+const lifeRiskHigh = (k) => ["debt", "stress", "legalRisk"].includes(k);
+const lifeStatMax = (k) => ["cash", "debt", "monthlyIncome"].includes(k) ? 180 : 100;
+const lifeLabel = (k) => ({ cash: "Cash", debt: "Debt", monthlyIncome: "Monthly Income", jobSecurity: "Job Security", careerCapital: "Career Capital", familyStability: "Family Stability", health: "Health", stress: "Stress", morale: "Morale", foodSupply: "Food Supply", fuelAccess: "Fuel Access", medicineAccess: "Medicine Access", housingSecurity: "Housing Security", internetAccess: "Internet Access", legalRisk: "Legal Risk", migrationReadiness: "Migration Readiness", reputation: "Reputation", emergencyPreparedness: "Emergency Preparedness" }[k] || k);
 const lifeApplyStats = (s, e = {}) => {
   const n = { ...s };
   Object.entries(e).forEach(([k, v]) => { n[k] = lc((n[k] ?? 50) + Number(v), lifeStatMax(k)); });
@@ -613,47 +647,77 @@ function buildLifeProfile(draft) {
   const spawn = LIFE_SPAWNS[draft.spawn] || LIFE_SPAWNS.singapore;
   const role = LIFE_ROLES[draft.role] || LIFE_ROLES.nurse;
   const philosophy = LIFE_PHILOSOPHIES[draft.philosophy] || LIFE_PHILOSOPHIES.protector;
+  const roleBase = { monthlyIncome: role.income || 50, cash: Math.round((role.income || 50) * 0.8), debt: role.id === "student" ? 42 : role.id === "business" ? 46 : 24, familyStability: draft.philosophy === "protector" ? 68 : 55 };
+  const stats = lifeApplyStats(lifeApplyStats(lifeApplyStats(lifeApplyStats(LIFE_BASE_STATS, roleBase), spawn.stats), role.stats), philosophy.stats);
   return {
     ...draft,
     spawn,
     role,
     philosophy,
+    jobSector: role.sector,
+    startingCash: stats.cash,
+    debt: stats.debt,
+    monthlyIncome: stats.monthlyIncome,
+    familyObligation: stats.familyStability,
     length: Number(draft.length) || 30,
-    stats: lifeApplyStats(lifeApplyStats(spawn.stats, role.stats), philosophy.stats),
+    stats,
     markets: { ...spawn.markets },
   };
 }
 function buildLifeEvent(day, profile) {
   const local = LIFE_LOCAL_EVENTS[(day - 1) % LIFE_LOCAL_EVENTS.length];
-  const pressure = day % 5 === 0 ? { morale: -3, debt: 3, risk: 2 } : {};
+  const stage = Math.min(6, Math.ceil(day / 7));
+  const crisis = {
+    financialContagion: 18 + stage * 7 + (day % 5 === 0 ? 10 : 0),
+    oilShock: 24 + stage * 6 + (["jakarta", "kl_pj", "manila"].includes(profile.spawn.id) ? 8 : 0),
+    cyberDisruption: 14 + stage * 5 + (["tech", "cyber", "compliance", "finance"].includes(profile.role.id) ? 8 : 0),
+    refugeePressure: 10 + stage * 5 + (["taipei", "hong_kong", "seoul"].includes(profile.spawn.id) ? 10 : 0),
+    escalationLevel: 20 + stage * 7 + (["taipei", "seoul", "tokyo"].includes(profile.spawn.id) ? 8 : 0),
+    nuclearRisk: 8 + stage * 4 + (["taipei", "seoul"].includes(profile.spawn.id) ? 6 : 0),
+    humanitarianDamage: 12 + stage * 5,
+  };
+  const pressure = {
+    jobSecurity: -Math.round(crisis.financialContagion / 18),
+    debt: Math.round(crisis.financialContagion / 28),
+    monthlyIncome: -Math.round(crisis.financialContagion / 35),
+    fuelAccess: -Math.round(crisis.oilShock / 16),
+    foodSupply: -Math.round((crisis.oilShock + crisis.humanitarianDamage) / 32),
+    internetAccess: -Math.round(crisis.cyberDisruption / 22),
+    housingSecurity: -Math.round(crisis.refugeePressure / 28),
+    stress: Math.round((crisis.escalationLevel + crisis.nuclearRisk) / 26),
+    migrationReadiness: crisis.escalationLevel > 48 ? 2 : 0,
+    medicineAccess: -Math.round(crisis.humanitarianDamage / 24),
+    morale: -Math.round((crisis.humanitarianDamage + crisis.escalationLevel) / 36),
+  };
+  const choices = [...LIFE_ACTIONS.slice((day - 1) % 5, ((day - 1) % 5) + 3), profile.role.roleChoice].filter(Boolean);
   return {
     local,
     role: { t: `${profile.role.name} Pressure`, d: profile.role.event },
-    choices: [
-      { l: "Stabilize the household and buy essentials", tag: "HOME", e: { supplies: 8, family: 5, money: -8, morale: 2, debt: 2 }, m: { food: 2, medicine: 1 }, o: "You pay retail before prices move again. The home base feels steadier." },
-      { l: "Take extra work and preserve cash flow", tag: "WORK", e: { money: 10, health: -4, morale: -3, family: -3, reputation: 2 }, m: { jobs: -2 }, o: "The shift is ugly, but cash arrives before the next price jump." },
-      { l: "Help neighbors and build a mutual-aid network", tag: "CIVIC", e: { reputation: 10, morale: 4, supplies: -5, risk: -2, money: -3 }, m: { food: -1 }, o: "People remember who showed up when the shelves were thin." },
-      profile.role.roleChoice,
-    ],
+    choices,
     pressure,
+    crisis,
   };
 }
 function resolveLifeChoice(stats, markets, event, choice, day) {
-  const drift = { food: rnd(0, 4), fuel: rnd(-1, 6), rent: rnd(0, 2), medicine: rnd(0, 4), usd: rnd(-2, 5), jobs: -rnd(0, 3) };
+  const c = event.crisis || {};
+  const drift = { food: rnd(0, 3) + Math.round((c.oilShock || 0) / 25), fuel: rnd(-1, 5) + Math.round((c.oilShock || 0) / 18), rent: rnd(0, 2) + Math.round((c.refugeePressure || 0) / 40), medicine: rnd(0, 3) + Math.round((c.humanitarianDamage || 0) / 28), usd: rnd(-2, 5) + Math.round((c.financialContagion || 0) / 35), jobs: -rnd(0, 2) - Math.round((c.financialContagion || 0) / 45) };
   const ns = lifeApplyStats(lifeApplyStats(lifeApplyStats(stats, event.local.e), event.pressure), choice.e);
   const nm = lifeApplyMarkets(lifeApplyMarkets(lifeApplyMarkets(markets, event.local.m), drift), choice.m);
-  const entry = `Day ${day}: ${event.local.t}. ${choice.o}`;
+  const preview = Object.entries(choice.e || {}).slice(0, 3).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
+  const entry = `Day ${day}: ${event.local.t}. ${choice.l}. ${choice.o}${preview ? ` (${preview})` : ""}`;
   return { stats: ns, markets: nm, entry };
 }
 function getLifeEnding(profile, stats) {
-  if (stats.debt > 92 || (stats.money < 20 && stats.debt > 70)) return { title: "Debt Collapse", grade: "F", body: "The crisis did not end with one dramatic mistake. It ended with compounding interest, late fees, and exhausted options." };
-  if (stats.money > 105 && stats.reputation < 38) return { title: "Black Market King", grade: "B-", body: "You learned where the shortages were before everyone else. The money is real. So are the enemies." };
-  if (stats.money > 105) return { title: "Crisis Millionaire", grade: "A-", body: "You turned volatility into a balance sheet. The city suffered, but your accounts tell a different story." };
-  if (stats.health < 34 || stats.morale < 30) return { title: "Burned-Out Professional", grade: "C-", body: "You kept working until the machine had nothing left to take except you." };
-  if (stats.family > 84) return { title: "Family Protector", grade: "A", body: "You did not save the world. You saved the people at your table, and that was the mission." };
-  if (profile.philosophy.id === "exit" && stats.money > 55 && stats.risk < 45) return { title: "Expat Escape", grade: "B+", body: "When the final window opened, your documents, cash, and timing were ready." };
-  if (stats.reputation > 82) return { title: "Community Pillar", grade: "A", body: "Your network became infrastructure. People survived because you made trust practical." };
-  return { title: "Quiet Survivor", grade: "B", body: "No headlines, no fortune, no collapse. You endured the crisis one careful day at a time." };
+  const why = `You ended in ${profile.spawn.name} as a ${profile.role.name}: cash ${stats.cash}, debt ${stats.debt}, stress ${stats.stress}, reputation ${stats.reputation}.`;
+  if (stats.debt > 105 || (stats.cash < 22 && stats.debt > 78)) return { title: "Debt Collapse", grade: "F", body: `Compounding debt outran income and emergency cash. ${why}` };
+  if (stats.cash > 118 && stats.reputation < 38) return { title: "Black Market King", grade: "B-", body: `You profited from shortages faster than trust could survive it. ${why}` };
+  if (stats.cash > 126) return { title: "Crisis Millionaire", grade: "A-", body: `You converted volatility, income, and cash discipline into a balance sheet. ${why}` };
+  if (stats.health < 34 || stats.stress > 82 || stats.morale < 30) return { title: "Burned-Out Professional", grade: "C-", body: `You kept functioning until the crisis took it out of your body and mind. ${why}` };
+  if (stats.familyStability > 84) return { title: "Family Protector", grade: "A", body: `You did not save the world. You kept your people stable, housed, and supplied. ${why}` };
+  if (profile.philosophy.id === "exit" && stats.migrationReadiness > 72 && stats.cash > 48 && stats.legalRisk < 48) return { title: "Expat Escape", grade: "B+", body: `Documents, money, and timing lined up when the exit window opened. ${why}` };
+  if (stats.reputation > 84) return { title: "Community Pillar", grade: "A", body: `Your network became infrastructure. People survived because you made trust practical. ${why}` };
+  if (stats.careerCapital > 86 && stats.jobSecurity > 62) return { title: "Career Breakthrough During Chaos", grade: "A-", body: `You became visibly useful while institutions were short on calm competence. ${why}` };
+  return { title: "Quiet Survivor", grade: "B", body: `No headlines, no fortune, no collapse. You endured the crisis one careful day at a time. ${why}` };
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
@@ -930,7 +994,7 @@ function MainMenu({ onWar, onLife }: AnyRecord) {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "12px" }}>
         {modeCard("War Room Mode", "Strategic Command", "Play the current strategic crisis game with factions, fleets, diplomatic choices, sudden events, and national endings.", "#185FA5", "#E6F1FB", onWar, ["Factions", "Fleets", "Crisis Cards", "Endings"])}
-        {modeCard("Life During Chaos Mode", "Civilian Survival", "Prototype the daily-survival loop with roles, spawn points, personal stats, markets, local events, and early civilian endings.", "#854F0B", "#FAEEDA", onLife, ["Spawn", "Role", "Markets", "Event Log"])}
+        {modeCard("Life During Chaos Mode", "Civilian Survival", "Play a compact survival RPG with cities, roles, household pressure, markets, crisis events, and civilian endings.", "#854F0B", "#FAEEDA", onLife, ["Cities", "Roles", "Markets", "Event Log"])}
       </div>
     </div>
   );
@@ -938,6 +1002,7 @@ function MainMenu({ onWar, onLife }: AnyRecord) {
 
 function LifeSetupScreen({ draft, setDraft, onStart, onBack }: AnyRecord) {
   const pick = (k, v) => setDraft(d => ({ ...d, [k]: v }));
+  const preview = buildLifeProfile(draft);
   const optionGrid = (title, keyName, items) => (
     <div style={{ marginBottom: "14px" }}>
       <div style={{ fontSize: "10px", color: "#854F0B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px", fontWeight: 700 }}>{title}</div>
@@ -958,14 +1023,22 @@ function LifeSetupScreen({ draft, setDraft, onStart, onBack }: AnyRecord) {
     <div style={S.shell}>
       <button onClick={onBack} style={{ marginBottom: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)", padding: "7px 10px", cursor: "pointer", fontSize: "10px", fontWeight: 650 }}>Back to Menu</button>
       <div style={{ ...S.panel, padding: "16px", marginBottom: "12px", borderTop: "3px solid #EF9F27" }}>
-        <div style={{ fontSize: "10px", color: "#854F0B", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "5px" }}>Phase 2 Foundation</div>
+        <div style={{ fontSize: "10px", color: "#854F0B", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "5px" }}>Civilian Survival RPG</div>
         <div style={{ fontSize: "22px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "5px" }}>Life During Chaos</div>
-        <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.65 }}>Create a civilian campaign profile. The current build focuses on the compact daily loop: events, markets, stats, choices, log, and endings.</div>
+        <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.65 }}>Create a civilian campaign profile with city, role, philosophy, cash, debt, income, family obligations, and crisis pressure.</div>
       </div>
       <div style={{ ...S.panel, padding: "14px" }}>
         {optionGrid("Spawn Point", "spawn", LIFE_SPAWNS)}
         {optionGrid("Role", "role", LIFE_ROLES)}
         {optionGrid("Life Philosophy", "philosophy", LIFE_PHILOSOPHIES)}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: "6px", marginBottom: "14px" }}>
+        {[["Job Sector", preview.jobSector], ["Starting Cash", preview.startingCash], ["Debt", preview.debt], ["Monthly Income", preview.monthlyIncome], ["Family Obligation", preview.familyObligation]].map(([k, v]) => (
+          <div key={k} style={{ background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "8px" }}>
+            <div style={{ fontSize: "8px", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{k}</div>
+            <div style={{ fontSize: "12px", color: "var(--color-text-primary)", fontWeight: 750, marginTop: "2px" }}>{v}</div>
+          </div>
+        ))}
+      </div>
       <div style={{ marginBottom: "14px" }}>
         <div style={{ fontSize: "10px", color: "#854F0B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px", fontWeight: 700 }}>Campaign Length</div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -979,11 +1052,11 @@ function LifeSetupScreen({ draft, setDraft, onStart, onBack }: AnyRecord) {
 }
 
 function LifeMetric({ label, value, limit = 100 }: AnyRecord) {
-  const color = label === "debt" || label === "risk" ? (value > 70 ? "#A32D2D" : value > 45 ? "#BA7517" : "#1D9E75") : vC(value);
+  const color = lifeRiskHigh(label) ? (value > 70 ? "#A32D2D" : value > 45 ? "#BA7517" : "#1D9E75") : vC(value);
   return (
     <div style={{ ...S.card, padding: "7px 8px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "baseline" }}>
-        <div style={{ fontSize: "8px", textTransform: "uppercase", color: "var(--color-text-tertiary)", letterSpacing: "0.04em" }}>{label}</div>
+        <div style={{ fontSize: "8px", textTransform: "uppercase", color: "var(--color-text-tertiary)", letterSpacing: "0.04em", lineHeight: 1.15 }}>{lifeLabel(label)}</div>
         <div style={{ fontSize: "14px", fontWeight: 800, color }}>{value}</div>
       </div>
       <div style={{ height: "3px", background: "var(--color-border-tertiary)", borderRadius: "3px", marginTop: "5px", overflow: "hidden" }}><div style={{ width: `${Math.min(100, (value / limit) * 100)}%`, background: color, height: "3px", borderRadius: "3px" }} /></div>
@@ -993,6 +1066,7 @@ function LifeMetric({ label, value, limit = 100 }: AnyRecord) {
 
 function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, onBack }: AnyRecord) {
   const progress = Math.round((day / profile.length) * 100);
+  const lifePreview = (c) => Object.entries(c.e || {}).slice(0, 4).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
   return (
     <div style={S.root}>
       <div style={{ ...S.shell, paddingTop: "10px", paddingBottom: "10px" }}>
@@ -1034,6 +1108,9 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, on
             <div style={{ fontSize: "9px", color: "#185FA5", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Local Crisis Event</div>
             <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px" }}>{event.local.t}</div>
             <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "10px" }}>{event.local.d}</div>
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "8px" }}>
+              {Object.entries(event.crisis || {}).slice(0, 4).map(([k, v]) => <span key={k} style={{ fontSize: "8px", padding: "2px 6px", borderRadius: "999px", background: riskBg(Number(v)), color: riskC(Number(v)), border: "0.5px solid currentColor" }}>{lifeLabel(k)} {v}</span>)}
+            </div>
             <div style={{ fontSize: "11px", color: "#854F0B", lineHeight: 1.6, background: "#fff7e8", border: "0.5px solid #EF9F27", borderRadius: "var(--border-radius-md)", padding: "8px 10px" }}><b>{event.role.t}:</b> {event.role.d}</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -1043,6 +1120,7 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, on
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.background = "var(--color-background-primary)"; }}
               >
                 <Tag tag={c.tag} /><span style={{ marginLeft: "8px" }}>{c.l}</span>
+                <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", marginTop: "4px" }}>{lifePreview(c)}</div>
               </button>
             ))}
           </div>
