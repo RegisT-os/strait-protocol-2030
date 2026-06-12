@@ -73,6 +73,66 @@ const crisisImpact = (c: AnyRecord): StatMap => {
     nuclearRisk: (c.strike ? 7 : 0) + (tag === "STR" ? 5 : 0) + (tag === "DIP" ? -2 : 0),
   };
 };
+const DECISION_CATEGORIES: AnyRecord = {
+  MIL: "Military",
+  STR: "Military",
+  DIP: "Diplomacy",
+  INT: "Intelligence",
+  PRX: "Intelligence",
+  CYB: "Cyber",
+  FIN: "Finance",
+  ECO: "Finance",
+  ECO2: "Finance",
+  LOG: "Logistics",
+  SUP: "Logistics",
+  POL: "Domestic Politics",
+  HUM: "Humanitarian",
+  CARE: "Humanitarian",
+};
+const categoryOf = (c: AnyRecord) => c.strike ? "Military" : (DECISION_CATEGORIES[c.tag] || "Diplomacy");
+const decisionCategoryKeys = ["Military", "Diplomacy", "Cyber", "Finance", "Intelligence", "Logistics", "Domestic Politics", "Humanitarian"];
+const emptyDecisionCounts = () => Object.fromEntries(decisionCategoryKeys.map(k => [k, 0]));
+const topDeltas = (e: StatMap = {}, meta: AnyRecord = {}, limit = 3) => Object.entries(e)
+  .filter(([, v]) => Number(v) !== 0)
+  .sort((a, b) => Math.abs(Number(b[1])) - Math.abs(Number(a[1])))
+  .slice(0, limit)
+  .map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${meta[k]?.label || k}`);
+const previewFor = (c: AnyRecord) => {
+  const cat = categoryOf(c);
+  const direct = topDeltas(c.e || {}, {}, 2);
+  const global = topDeltas(crisisImpact(c), CRISIS_META, 2);
+  const tone = c.type === "good" ? "Lower-risk" : c.type === "bad" ? "High-risk" : "Tradeoff";
+  return `${cat} · ${tone}${direct.length ? ` · ${direct.join(", ")}` : ""}${global.length ? ` · Global: ${global.join(", ")}` : ""}`;
+};
+const factionFocus = (fid: string, st: StatMap) => {
+  const focus: AnyRecord = {
+    us_dem: ["coalition", "domestic", "resolve"],
+    china: ["politburo", "pla", "resolve"],
+    russia: ["oligarch", "nato", "proxy"],
+    north_korea: ["kim", "food", "fuel"],
+    asean: ["unity", "malacca", "economy"],
+    eu: ["unity", "leverage", "economy"],
+    un: ["p5", "hum", "global"],
+  };
+  return (focus[fid] || Object.keys(st).slice(6, 9)).filter(k => st[k] !== undefined);
+};
+const strategicPosture = (fid: string, st: StatMap, crisis: StatMap) => {
+  if (crisis.nuclearRisk >= 65 || crisis.escalationLevel >= 75) return "Brink management";
+  if (crisis.financialContagion >= 65 || crisis.oilShock >= 65) return "Economic firebreak";
+  if (fid === "asean" && (st.unity || 0) < 45) return "Bloc survival";
+  if (fid === "north_korea" && (st.food || 0) < 40) return "Regime triage";
+  if (fid === "un" && (st.hum || 0) < 45) return "Humanitarian access";
+  if ((st.military || 0) >= 75) return "Hard-power leverage";
+  if ((st.credibility || 0) >= 70) return "Diplomatic leverage";
+  return "Crisis balancing";
+};
+const logEntryFor = (day: number, act: number, faction: AnyRecord, sc: AnyRecord, c: AnyRecord) =>
+  `D${day} · Act ${act} · ${categoryOf(c)}: ${faction.sub} chose "${c.l}" during "${sc.t}". ${c.o}`;
+const turningPointFor = (day: number, act: number, sc: AnyRecord, c: AnyRecord, crisisDelta: StatMap) => {
+  const largest = topDeltas(crisisDelta, CRISIS_META, 1)[0];
+  const marker = c.strike ? "Strike threshold" : c.type === "bad" ? "Crisis setback" : c.type === "good" ? "Strategic gain" : "Major tradeoff";
+  return { day, act, title: marker, body: `${sc.t}${largest ? ` · ${largest}` : ""}` };
+};
 
 const FACTIONS = {
   us_dem: { id: "us_dem", flag: "🇺🇸", name: "United States", sub: "Democrat Administration", color: "#185FA5", bd: "#85B7EB", bg: "#E6F1FB", tagline: "Multilateral juggler — coalition or bust", pressure: "Progressive caucus · Allied burden disputes · UN credibility · Recession fear", traits: ["Multilateral", "Sanctions-first", "Domestic division", "Coalition"], intel: "NSC emergency session. PLAN blockaded Taiwan's eastern ports — Day 1. Progressive caucus demands UN vote before any military posture. JCS says delay = weakness. Treasury: 90-day conflict = 68% recession probability.", startStats: { stability: 68, military: 78, economy: 72, credibility: 80, global: 75, domestic: 62, coalition: 70, resolve: 65, fuel: 85, supply: 80, chest: 75, proxy: 60 }, fleets: [{ name: "USS Gerald R. Ford CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "West Pacific", threat: "High", eta: 0, sup: 28, note: "On station. Strike-ready." }, { name: "USS Ronald Reagan CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "South China Sea", threat: "High", eta: 0, sup: 22, note: "Resupply needed Day 22." }, { name: "USS Nimitz CSG", type: "Carrier Strike Group", u: 9, status: "standby", front: "Pearl Harbor", threat: "None", eta: 7, sup: 45, note: "7-day transit to Taiwan Strait." }, { name: "USS Truman CSG", type: "Carrier Strike Group", u: 9, status: "transit", front: "Indian Ocean", threat: "Medium", eta: 12, sup: 40, note: "12 days from theater." }, { name: "SSN Wolf Pack Alpha", type: "Submarine Squadron", u: 6, status: "covert", front: "Taiwan Strait", threat: "Critical", eta: 0, sup: 60, note: "Undetected. PLAN unaware." }, { name: "Makin Island ARG", type: "Amphibious Ready Group", u: 5, status: "standby", front: "Okinawa", threat: "Low", eta: 2, sup: 35, note: "2,200 Marines aboard." }, { name: "B-52H Strategic Wing", type: "Strategic Bombers", u: 12, status: "on-station", front: "Andersen AFB Guam", threat: "High", eta: 0, sup: 30, note: "Armed. 4hr sortie to Strait." }] },
@@ -320,9 +380,21 @@ const ENDINGS = {
   ],
 };
 
-function getEnding(fid, st) {
+function getEnding(fid, st, context: AnyRecord = {}) {
   const list = ENDINGS[fid] || [];
-  return list.find(e => e.cond(st)) || list[list.length - 1] || { grade: "B", title: "Crisis Concluded", body: "The situation resolved. History will judge the choices made." };
+  const base = list.find(e => e.cond(st)) || list[list.length - 1] || { grade: "B", title: "Crisis Concluded", body: "The situation resolved. History will judge the choices made." };
+  const counts = context.decisionCounts || {};
+  const crisis = context.crisis || {};
+  const topCategory = Object.entries(counts).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+  const notes = [
+    topCategory && Number(topCategory[1]) > 0 ? `Your dominant playbook was ${topCategory[0]} (${topCategory[1]} decisions).` : "",
+    context.strikes ? `${context.strikes} strike decision${context.strikes === 1 ? "" : "s"} left a permanent escalation signature.` : "",
+    crisis.nuclearRisk >= 60 ? "Nuclear risk remained dangerously high at the close." : "",
+    crisis.humanitarianDamage >= 60 ? "Humanitarian damage became one of the defining costs of the crisis." : "",
+    crisis.allianceCohesion >= 70 ? "Alliance cohesion held strongly through the final act." : "",
+    crisis.publicTrust < 40 ? "Public trust was badly damaged by the endgame." : "",
+  ].filter(Boolean).join(" ");
+  return { ...base, body: notes ? `${base.body} ${notes}` : base.body, context };
 }
 
 function buildQ(fid) {
@@ -442,6 +514,75 @@ function CrisisTile({ id, value }: AnyRecord) {
         <div style={{ width: `${value}%`, height: "3px", borderRadius: "999px", background: color }} />
       </div>
       <div style={{ fontSize: "8px", color, fontWeight: 700 }}>{status}</div>
+    </div>
+  );
+}
+
+function StrategicDashboard({ F, fid, stats, crisis, counts }: AnyRecord) {
+  const focus = factionFocus(fid, stats);
+  const posture = strategicPosture(fid, stats, crisis);
+  const used = Object.entries(counts).filter(([, v]) => Number(v) > 0);
+  return (
+    <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.72)" }}>
+      <div style={{ maxWidth: "1120px", margin: "0 auto", display: "grid", gridTemplateColumns: "minmax(240px,1.1fr) minmax(260px,1.4fr) minmax(220px,1fr)", gap: "8px" }}>
+        <div style={{ ...S.card, padding: "10px", border: `1px solid ${F.bd}` }}>
+          <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 800 }}>Strategic Posture</div>
+          <div style={{ fontSize: "15px", fontWeight: 800, color: "var(--color-text-primary)", marginTop: "3px" }}>{posture}</div>
+          <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, marginTop: "5px" }}>{F.tagline}</div>
+        </div>
+        <div style={{ ...S.card, padding: "10px" }}>
+          <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 800, marginBottom: "6px" }}>Faction Pressure</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(90px,1fr))", gap: "5px" }}>
+            {focus.map(k => <StatBar key={k} label={k} value={stats[k]} />)}
+          </div>
+        </div>
+        <div style={{ ...S.card, padding: "10px" }}>
+          <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 800, marginBottom: "6px" }}>Decision Mix</div>
+          {used.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No doctrine established yet.</div> : used.map(([k, v]) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "10px", color: "var(--color-text-secondary)", borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}>
+              <span>{k}</span><b style={{ color: "var(--color-text-primary)" }}>{v as number}</b>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActProgress({ act, day, F }: AnyRecord) {
+  return (
+    <div style={{ padding: "7px 14px", background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+      <div style={{ maxWidth: "1120px", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "4px" }}>
+        {[1, 2, 3, 4, 5, 6].map(a => (
+          <div key={a} style={{ border: `0.5px solid ${a === act ? F.bd : "var(--color-border-tertiary)"}`, background: a < act ? "#EAF3DE" : a === act ? F.bg : "var(--color-background-primary)", borderRadius: "var(--border-radius-md)", padding: "5px 6px", minHeight: "42px" }}>
+            <div style={{ fontSize: "8px", color: a <= act ? F.color : "var(--color-text-tertiary)", fontWeight: 800, textTransform: "uppercase" }}>Act {a}</div>
+            <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", lineHeight: 1.25 }}>{ACTS[a]}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ maxWidth: "1120px", margin: "5px auto 0", fontSize: "9px", color: "var(--color-text-tertiary)", textAlign: "right" }}>Day {day}/45</div>
+    </div>
+  );
+}
+
+function WarRoomSidePanel({ log, timeline }: AnyRecord) {
+  return (
+    <div style={{ display: "grid", gap: "8px" }}>
+      <div style={{ ...S.panel, padding: "11px", maxHeight: "260px", overflow: "auto" }}>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Crisis Timeline</div>
+        {timeline.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No turning points recorded yet.</div> : timeline.slice().reverse().map((t, i) => (
+          <div key={i} style={{ borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>
+            <div style={{ fontSize: "9px", color: "#854F0B", fontWeight: 800 }}>D{t.day} · Act {t.act} · {t.title}</div>
+            <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45 }}>{t.body}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ ...S.panel, padding: "11px", maxHeight: "300px", overflow: "auto" }}>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>War Room Log</div>
+        {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No decisions recorded yet.</div> : log.slice().reverse().map((l, i) => (
+          <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.5, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -718,6 +859,9 @@ function EndingScreen({ F, ending, stats, onRestart }: AnyRecord) {
   if (!ending) return null;
   const gradeColor = { "A+": "#1D9E75", "A": "#1D9E75", "A-": "#3B6D11", "B+": "#639922", "B": "#639922", "B-": "#BA7517", "C+": "#BA7517", "C": "#BA7517", "C-": "#854F0B", "D": "#E24B4A", "F": "#A32D2D" }[ending.grade] || "#888";
   const gradeBg = { "A+": "#EAF3DE", "A": "#EAF3DE", "A-": "#EAF3DE", "B+": "#EAF3DE", "B": "#EAF3DE", "B-": "#FAEEDA", "C+": "#FAEEDA", "C": "#FAEEDA", "C-": "#FAEEDA", "D": "#FCEBEB", "F": "#FCEBEB" }[ending.grade] || "#f5f5f5";
+  const ctx = ending.context || {};
+  const counts = Object.entries(ctx.decisionCounts || {}).filter(([, v]) => Number(v) > 0);
+  const turns = (ctx.timeline || []).slice(-4).reverse();
   return (
     <div style={{ padding: "20px 14px", textAlign: "center" }}>
       <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", marginBottom: "16px", letterSpacing: "0.08em" }}>STRAIT PROTOCOL: 2030 · DAY 45</div>
@@ -725,6 +869,18 @@ function EndingScreen({ F, ending, stats, onRestart }: AnyRecord) {
       <div style={{ fontSize: "18px", fontWeight: 500, color: gradeColor, marginBottom: "4px" }}>{ending.title}</div>
       <div style={{ display: "inline-block", padding: "3px 18px", borderRadius: "20px", border: `1.5px solid ${gradeColor}`, fontSize: "16px", fontWeight: 500, color: gradeColor, background: gradeBg, marginBottom: "14px" }}>{ending.grade}</div>
       <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.8, marginBottom: "16px", maxWidth: "440px", margin: "0 auto 16px" }}>{ending.body}</div>
+      {(counts.length > 0 || turns.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "8px", maxWidth: "620px", margin: "0 auto 16px", textAlign: "left" }}>
+          <div style={{ ...S.card, padding: "10px" }}>
+            <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Decision Doctrine</div>
+            {counts.map(([k, v]) => <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}><span>{k}</span><b>{v as number}</b></div>)}
+          </div>
+          <div style={{ ...S.card, padding: "10px" }}>
+            <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Defining Turns</div>
+            {turns.map((t, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}>D{t.day}: {t.title} · {t.body}</div>)}
+          </div>
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "4px", maxWidth: "460px", margin: "0 auto 18px" }}>
         {Object.entries(stats as StatMap).map(([k, v]) => (
           <div key={k} style={{ background: "var(--color-background-secondary)", borderRadius: "6px", padding: "4px 4px", textAlign: "center", border: `0.5px solid ${vBg(v)}` }}>
@@ -762,6 +918,9 @@ export default function App() {
   const [nukeAlert, setNukeAlert] = useState(1);
   const [taiwanFuel, setTaiwanFuel] = useState(61);
   const [crisis, setCrisis] = useState<StatMap>({ ...DEFAULT_CRISIS });
+  const [warLog, setWarLog] = useState<string[]>([]);
+  const [timeline, setTimeline] = useState<any[]>([]);
+  const [decisionCounts, setDecisionCounts] = useState<AnyRecord>(emptyDecisionCounts());
   const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
   const [lifeProfile, setLifeProfile] = useState<any>(null);
   const [lifeStats, setLifeStats] = useState<StatMap>({});
@@ -780,6 +939,7 @@ export default function App() {
     setUsedSudden(new Set()); setStrikes(0); setEnding(null);
     setOil(145); setRecession(22); setNukeAlert(1); setTaiwanFuel(61);
     setCrisis({ ...DEFAULT_CRISIS });
+    setWarLog([]); setTimeline([]); setDecisionCounts(emptyDecisionCounts());
     setScreen("game");
   }, []);
 
@@ -806,18 +966,24 @@ export default function App() {
     if ((c.e.economy || 0) < -10) setRecession(r => Math.min(100, r + 4));
     if ((c.e.fuel || 0) < -5) setOil(o => Math.min(250, o + rnd(5, 15)));
     setTaiwanFuel(t => Math.max(0, t - rnd(1, 4)));
+    const category = categoryOf(c);
+    const entry = logEntryFor(day, act, F, sc, c);
+    const point = turningPointFor(day, act, sc, c, crisisDelta);
     setCrisis(nextCrisis);
     setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
     setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
     setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
-    setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc, crisisDelta });
+    setDecisionCounts(d => ({ ...d, [category]: (d[category] || 0) + 1 }));
+    setWarLog(l => [...l, entry].slice(-16));
+    setTimeline(t => [...t, point].slice(-10));
+    setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc, crisisDelta, category });
     const suddenChance = 0.18 + Math.max(nextCrisis.escalationLevel, nextCrisis.financialContagion, nextCrisis.mediaPanic, nextCrisis.cyberDisruption, 0) / 280;
     if (Math.random() < suddenChance) {
       const se = pickSuddenEvent(usedSudden, nextCrisis);
       if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden(se); }
     }
     setPhase("result");
-  }, [stats, crisis, turn, day, usedSudden, recession, nukeAlert]);
+  }, [stats, crisis, turn, day, act, F, usedSudden, recession, nukeAlert]);
 
   const nextTurn = useCallback(() => {
     let ns = stats;
@@ -831,10 +997,10 @@ export default function App() {
     }
     const ni = qi + 1;
     if (turn >= 42 || day >= 45 || ni >= queue.length) {
-      setEnding(getEnding(fid, ns)); setScreen("ending"); return;
+      setEnding(getEnding(fid, ns, { crisis, decisionCounts, timeline, log: warLog, strikes })); setScreen("ending"); return;
     }
     setQi(ni); setPhase("choose");
-  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert]);
+  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes]);
 
   const pickLifeChoice = useCallback((choice) => {
     if (!lifeProfile || !lifeEvent) return;
@@ -888,6 +1054,9 @@ export default function App() {
         </div>
       </div>
 
+      <StrategicDashboard F={F} fid={fid} stats={stats} crisis={crisis} counts={decisionCounts} />
+      <ActProgress act={act} day={day} F={F} />
+
       {/* Primary stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: "5px", padding: "8px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", maxWidth: "1120px", margin: "0 auto" }}>
         {Object.entries(stats).slice(0, 6).map(([k, v]) => <StatBar key={k} label={k} value={v} />)}
@@ -930,7 +1099,8 @@ export default function App() {
       </div>
 
       {/* Main content */}
-      <div style={{ ...S.shell, paddingTop: "12px" }}>
+      <div style={{ ...S.shell, paddingTop: "12px", display: "grid", gridTemplateColumns: "minmax(0,1.7fr) minmax(280px,0.8fr)", gap: "10px", alignItems: "start" }}>
+        <div>
         {phase === "choose" && (
           <div style={{ ...S.panel, padding: "14px" }}>
             <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Active Crisis Card</div>
@@ -949,7 +1119,10 @@ export default function App() {
                   onMouseLeave={e => { e.currentTarget.style.background = "var(--color-background-primary)"; e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; }}
                 >
                   <Tag tag={c.tag} strike={c.strike} />
-                  <span>{c.l}</span>
+                  <span style={{ display: "grid", gap: "3px" }}>
+                    <span>{c.l}</span>
+                    <span style={{ fontSize: "9px", color: "var(--color-text-tertiary)", lineHeight: 1.35 }}>{previewFor(c)}</span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -1015,6 +1188,8 @@ export default function App() {
             </button>
           </div>
         )}
+        </div>
+        <WarRoomSidePanel log={warLog} timeline={timeline} />
       </div>
     </div>
   );
