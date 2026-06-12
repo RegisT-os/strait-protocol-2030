@@ -1,9 +1,10 @@
+import { rng } from "./rng";
 export type StatMap = Record<string, number>;
 export type AnyRecord = Record<string, any>;
 
 export const cl = v => Math.max(0, Math.min(100, Math.round(v)));
-export const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
-export const sfl = arr => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+export const rnd = (a, b) => Math.floor(rng() * (b - a + 1)) + a;
+export const sfl = arr => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 export const apE = (s, e = {}) => { const n = { ...s }; Object.entries(e).forEach(([k, v]) => { if (n[k] !== undefined) n[k] = cl(n[k] + v); }); return n; };
 
 export const ACTS = { 1: "Crisis Erupts", 2: "Alliance Formation", 3: "Economic War", 4: "Military Threshold", 5: "Regional Spillover", 6: "Endgame" };
@@ -297,7 +298,7 @@ export const pickChainEvent = (ctx: AnyRecord) => {
     .slice(0, 3);
   if (!options.length) return null;
   const total = options.reduce((a, e) => a + e.score, 0);
-  let roll = Math.random() * total;
+  let roll = rng() * total;
   return options.find(e => (roll -= e.score) <= 0) || options[0];
 };
 export const chainEndingNote = (history: AnyRecord[] = []) => {

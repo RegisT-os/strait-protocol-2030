@@ -1,3 +1,4 @@
+import { rng } from "./rng";
 import { FABLE_SCENARIO_EXPANSIONS, FACTIONS, LIFE_ACTIONS, LIFE_BASE_STATS, LIFE_LOCAL_EVENTS, LIFE_PHILOSOPHIES, LIFE_ROLES, LIFE_SPAWNS, SCENARIOS } from "./data";
 import { AnyRecord, CRISIS_META, FLEET_COMMAND_POINTS_PER_DAY, StatMap, chainEndingNote, factionEndingNote, fleetEndingNote, fleetSummary, rnd, sfl } from "./engine";
 export const ENDINGS = {
@@ -198,8 +199,9 @@ export function buildLifeChoices(day, profile, crisis, stats) {
   if ((crisis.escalationLevel || 0) > 55 || (stats.migrationReadiness || 0) < 35) add(actionByStrategy("migration"));
   return Array.from(chosen.values()).slice(0, 6);
 }
-export function buildLifeEvent(day, profile, currentStats = profile.stats) {
-  const local = LIFE_LOCAL_EVENTS[(day - 1) % LIFE_LOCAL_EVENTS.length];
+export function buildLifeEvent(day, profile, currentStats = profile.stats, avoidTitle = "") {
+  let local = LIFE_LOCAL_EVENTS[Math.floor(rng() * LIFE_LOCAL_EVENTS.length)];
+  if (local.t === avoidTitle && LIFE_LOCAL_EVENTS.length > 1) local = LIFE_LOCAL_EVENTS[(LIFE_LOCAL_EVENTS.indexOf(local) + 1 + Math.floor(rng() * (LIFE_LOCAL_EVENTS.length - 1))) % LIFE_LOCAL_EVENTS.length];
   const stage = Math.min(6, Math.ceil(day / 7));
   const crisis = {
     financialContagion: 18 + stage * 7 + (day % 5 === 0 ? 10 : 0),

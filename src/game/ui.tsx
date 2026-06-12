@@ -261,7 +261,7 @@ export function FactionScreen({ onPick }: AnyRecord) {
   );
 }
 
-export function MainMenu({ onWar, onLife, canLoad, onLoad, onClear, saveMessage }: AnyRecord) {
+export function MainMenu({ onWar, onLife, canLoad, onLoad, onClear, saveMessage, seed, onSeed, onNewSeed }: AnyRecord) {
   const modeCard = (title, eyebrow, body, accent, bg, onClick, chips) => (
     <button onClick={onClick}
       style={{ ...S.panel, cursor: "pointer", padding: "18px", textAlign: "left", fontFamily: "var(--font-sans)", minHeight: "210px", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden" }}
@@ -304,7 +304,11 @@ export function MainMenu({ onWar, onLife, canLoad, onLoad, onClear, saveMessage 
       </div>
       <div style={{ ...S.panel, padding: "10px", marginTop: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
         <div style={{ fontSize: "10px", color: "var(--color-text-secondary)" }}>{saveMessage || (canLoad ? "A saved campaign is available on this browser." : "No saved campaign found on this browser.")}</div>
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: "9px", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>Crisis Seed</span>
+          <input value={seed ?? ""} onChange={e => onSeed && onSeed(Math.max(1, parseInt(e.target.value, 10) || 1))} inputMode="numeric"
+            style={{ width: "76px", padding: "6px 8px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", fontSize: "10px", fontWeight: 700 }} />
+          <button onClick={onNewSeed} title="New random seed" style={{ padding: "7px 10px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", cursor: "pointer", fontSize: "10px", fontWeight: 700 }}>🎲 New Seed</button>
           <button onClick={onLoad} disabled={!canLoad} style={{ padding: "7px 10px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)", background: canLoad ? "var(--color-background-primary)" : "var(--color-background-secondary)", color: canLoad ? "var(--color-text-primary)" : "var(--color-text-tertiary)", cursor: canLoad ? "pointer" : "not-allowed", fontSize: "10px", fontWeight: 700 }}>Load Saved Campaign</button>
           <button onClick={onClear} disabled={!canLoad} style={{ padding: "7px 10px", borderRadius: "var(--border-radius-md)", border: "0.5px solid #F09595", background: canLoad ? "#FCEBEB" : "var(--color-background-secondary)", color: canLoad ? "#A32D2D" : "var(--color-text-tertiary)", cursor: canLoad ? "pointer" : "not-allowed", fontSize: "10px", fontWeight: 700 }}>Clear Save</button>
         </div>

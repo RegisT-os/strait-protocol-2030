@@ -3,9 +3,11 @@ import { ACTS, AnyRecord, CRISIS_META, DEFAULT_CRISIS, FLEET_COMMAND_POINTS_PER_
 import { SAVE_KEY, buildLifeEvent, buildLifeProfile, buildQ, downloadText, getEnding, getLifeEnding, lifeSummaryText, resolveLifeChoice, restoreSet, saveSet, storageGet, storageRemove, storageSet, warSummaryText, whyWarChoice } from "./game/systems";
 import { ActProgress, CampaignControls, CrisisTile, EndingScreen, FactionScreen, FleetOpsCard, LifeEndingScreen, LifeGameScreen, LifeSetupScreen, MainMenu, ManualButton, ManualOverlay, PressureMetric, S, StatBar, StrategicDashboard, Tag, WarRoomSidePanel } from "./game/ui";
 import { useState, useCallback } from "react";
+import { getRngState, newSeed, rng, setRngState } from "./game/rng";
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [screen, setScreen] = useState("menu");
+  const [seed, setSeed] = useState(newSeed());
   const [fid, setFid] = useState<string | null>(null);
   const [stats, setStats] = useState<StatMap>({});
   const [queue, setQueue] = useState<any[]>([]);
@@ -50,6 +52,7 @@ export default function App() {
   const F = fid ? FACTIONS[fid] : null;
 
   const startGame = useCallback((f) => {
+    setRngState(seed);
     const q = buildQ(f);
     setFid(f); setStats(factionInitialStats(f, { ...FACTIONS[f].startStats })); setQueue(q); setQi(0);
     setDay(1); setAct(1); setTurn(0); setPhase("choose"); setChosen(null); setSudden(null);
@@ -64,9 +67,10 @@ export default function App() {
     setUsedChainEvents(new Set());
     setChainHistory([]);
     setScreen("game");
-  }, []);
+  }, [seed]);
 
   const startLife = useCallback(() => {
+    setRngState(seed);
     const profile = buildLifeProfile(lifeDraft);
     setLifeProfile(profile);
     setLifeStats(profile.stats);
@@ -77,13 +81,15 @@ export default function App() {
     setLifeStrategyCounts({});
     setLifeEnding(null);
     setScreen("lifeGame");
-  }, [lifeDraft]);
+  }, [lifeDraft, seed]);
 
   const saveCampaign = useCallback(() => {
     const isLife = screen === "lifeGame" || screen === "lifeEnding" || screen === "lifeSetup";
     const isWar = screen === "game" || screen === "ending";
     const payload = {
-      version: 2,
+      version: 3,
+      seed,
+      rngState: getRngState(),
       mode: isLife ? "life" : isWar ? "war" : "menu",
       savedAt: new Date().toISOString(),
       screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden: saveSet(usedSudden), strikes, ending,
@@ -93,13 +99,15 @@ export default function App() {
     };
     storageSet(SAVE_KEY, JSON.stringify(payload));
     setSaveAvailable(true); setSaveMessage(`Saved ${payload.mode} campaign.`);
-  }, [screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
+  }, [seed, screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
 
   const loadCampaign = useCallback(() => {
     const raw = storageGet(SAVE_KEY);
     if (!raw) { setSaveMessage("No saved campaign found."); setSaveAvailable(false); return; }
     try {
       const p = JSON.parse(raw);
+      if (p.seed) setSeed(p.seed);
+      if (p.rngState) setRngState(p.rngState);
       setFid(p.fid || null); setStats(p.stats || {}); setQueue(p.queue || []); setQi(p.qi || 0); setDay(p.day || 1); setAct(p.act || 1); setTurn(p.turn || 0); setPhase(p.phase || "choose"); setChosen(p.chosen || null); setSudden(p.sudden || null);
       setUsedSudden(restoreSet(p.usedSudden)); setStrikes(p.strikes || 0); setEnding(p.ending || null);
       setOil(p.oil || 145); setRecession(p.recession || 22); setNukeAlert(p.nukeAlert || 1); setTaiwanFuel(p.taiwanFuel || 61); setCrisis(p.crisis || { ...DEFAULT_CRISIS });
@@ -140,10 +148,8 @@ export default function App() {
     const ns = apE(apE(stats, c.e), pressureDelta);
     const nt = turn + 1;
     const nd = Math.min(day + rnd(2, 4), 45);
-    const na = Math.min(Math.ceil(nt / 7), 6);
+    const na = Math.min(Math.ceil(nd / 7.5), 6);
     if (c.strike) { setStrikes(s => s + 1); setNukeAlert(n => Math.min(5, n + 1)); }
-    if ((c.e.economy || 0) < -10) setRecession(r => Math.min(100, r + 4));
-    if ((c.e.fuel || 0) < -5) setOil(o => Math.min(250, o + rnd(5, 15)));
     setTaiwanFuel(t => Math.max(0, t - rnd(1, 4)));
     const category = categoryOf(c);
     const entry = logEntryFor(day, act, F, sc, c);
@@ -152,8 +158,8 @@ export default function App() {
     setFleetOrdersToday({});
     setCrisis(nextCrisis);
     setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
-    setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
-    setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+    setRecession(r => Math.max(r, Math.round(nextCrisis.financialContagion * 0.8)));
+    setNukeAlert(n => Math.max(n, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
     const nextCounts = { ...decisionCounts, [category]: (decisionCounts[category] || 0) + 1 };
     setDecisionCounts(nextCounts);
     setWarLog(l => [...l, entry].slice(-16));
@@ -171,7 +177,7 @@ export default function App() {
       setWarLog(l => [...l, `D${nd} · Crisis Chain: ${chainEvent.t}. ${chainEvent.d}`].slice(-16));
       setTimeline(t => [...t, { day: nd, act: na, title: "Crisis Chain", body: `${chainEvent.t} · score ${chainEvent.score}` }].slice(-10));
       setSudden(chainEvent);
-    } else if (Math.random() < suddenChance) {
+    } else if (rng() < suddenChance) {
       const se = pickSuddenEvent(usedSudden, nextCrisis);
       if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden(se); }
     }
@@ -204,8 +210,8 @@ export default function App() {
     setStats(nextStats);
     setCrisis(nextCrisis);
     setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
-    setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
-    setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+    setRecession(r => Math.max(r, Math.round(nextCrisis.financialContagion * 0.8)));
+    setNukeAlert(n => Math.max(n, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
     setWarLog(l => [...l, `D${day} · Fleet: ${action} ordered for ${fl.name}. Mission now "${nextFleet.mission}". Sea control ${summary.seaControl}.`].slice(-16));
     setTimeline(t => [...t, { day, act, title: "Fleet Action", body: `${action}: ${fl.name} · readiness ${nextFleet.readiness}, fuel ${nextFleet.fuel}` }].slice(-10));
   }, [fleetAssets, fid, stats, crisis, recession, nukeAlert, day, act, fleetCommandPoints, fleetOrdersToday]);
@@ -217,8 +223,8 @@ export default function App() {
       const nextCrisis = applyCrisis(crisis, sudden.crisis || SUDDEN_CRISIS_EFFECTS[sudden.id] || {});
       setStats(ns); setCrisis(nextCrisis); setSudden(null);
       setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
-      setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
-      setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+      setRecession(r => Math.max(r, Math.round(nextCrisis.financialContagion * 0.8)));
+      setNukeAlert(n => Math.max(n, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
     }
     const fleetEvent = fleetTriggeredEvent(fid, fleetAssets, usedFleetEvents);
     if (!sudden && fleetEvent) {
@@ -244,12 +250,12 @@ export default function App() {
     }
     const nd = lifeDay + 1;
     setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
-    setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile, resolved.stats));
+    setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile, resolved.stats, lifeEvent?.local?.t));
   }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
 
   const activeControls = <CampaignControls mode={screen === "lifeGame" || screen === "lifeEnding" ? "Life Campaign" : "War Room Campaign"} canLoad={saveAvailable} message={saveMessage} onSave={saveCampaign} onLoad={loadCampaign} onClear={clearSave} onExport={exportSummary} onRestart={restartActive} />;
 
-  if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} canLoad={saveAvailable} saveMessage={saveMessage} onLoad={loadCampaign} onClear={clearSave} /></div>;
+  if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} canLoad={saveAvailable} saveMessage={saveMessage} onLoad={loadCampaign} onClear={clearSave} seed={seed} onSeed={setSeed} onNewSeed={() => setSeed(newSeed())} /></div>;
   if (screen === "lifeSetup") return <LifeSetupScreen draft={lifeDraft} setDraft={setLifeDraft} onStart={startLife} onBack={() => setScreen("menu")} />;
   if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} controls={activeControls} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} />;
   if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} controls={activeControls} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
