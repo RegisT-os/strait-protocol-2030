@@ -17,7 +17,7 @@ import {
   vBg,
   vC,
 } from "./game/engine";
-import { WAR_OPERATIONS } from "./game/data";
+import { LIFE_PROJECTS, WAR_OPERATIONS } from "./game/data";
 import {
   availableOps,
   abandonOp,
@@ -857,8 +857,39 @@ const warOpsContext = (ops: OpsState, ctx: AnyRecord): OpsState => ({
   fleets: (ctx.fleets || ops.fleets || []).map((f: AnyRecord, i: number) => ({ ...f, id: f.id || `${ctx.fid || ops.factionId || "fleet"}-${i}`, hostile: !!f.hostile || String(f.name || "").includes("HOSTILE") })),
   chainTags: (ctx.chainHistory || []).map((c: AnyRecord) => c.tag).filter(Boolean),
 });
+const lifeEventTags = (event?: AnyRecord) => {
+  const text = `${event?.local?.t || ""} ${event?.local?.d || ""}`.toLowerCase();
+  return [
+    text.includes("cyber") ? "cyber" : "",
+    text.includes("blackout") || text.includes("power") ? "blackout" : "",
+    text.includes("bank") || text.includes("cash") ? "banking" : "",
+    text.includes("food") || text.includes("shortage") ? "shortage" : "",
+  ].filter(Boolean);
+};
+const cityEventTags = (event?: AnyRecord) => {
+  const text = `${event?.local?.t || ""} ${event?.local?.d || ""}`.toLowerCase();
+  return [
+    text.includes("protest") ? "protest" : "",
+    text.includes("ration") ? "rationing" : "",
+    text.includes("community") || text.includes("neighbor") ? "community" : "",
+  ].filter(Boolean);
+};
+const lifeOpsContext = (ops: OpsState, ctx: AnyRecord): OpsState => ({
+  ...ops,
+  mode: "life",
+  day: ctx.day ?? ops.day,
+  campaignLength: ctx.profile?.length ?? ctx.length ?? ops.campaignLength,
+  roleId: ctx.profile?.role?.id ?? ctx.roleId ?? ops.roleId,
+  cityId: ctx.profile?.spawn?.id ?? ctx.cityId ?? ops.cityId,
+  philosophyId: ctx.profile?.philosophy?.id ?? ctx.philosophyId ?? ops.philosophyId,
+  stats: { ...(ctx.stats || ops.stats || {}) },
+  crisis: { ...(ctx.crisis || ops.crisis || {}) },
+  markets: { ...(ctx.markets || ops.markets || {}) },
+  lifeEventTags: ctx.event ? lifeEventTags(ctx.event) : (ctx.lifeEventTags || ops.lifeEventTags || []),
+  cityEventTags: ctx.event ? cityEventTags(ctx.event) : (ctx.cityEventTags || ops.cityEventTags || []),
+});
 const readyOps = (ops: OpsState) => ops.activeOps.filter(o => o.status === "ready" || o.progress >= o.duration).slice().sort((a, b) => a.startedDay - b.startedDay || a.slotIndex - b.slotIndex);
-const opTitle = (id: string) => WAR_OPERATIONS.find(op => op.id === id)?.title || id;
+const opTitle = (id: string) => [...WAR_OPERATIONS, ...LIFE_PROJECTS].find(op => op.id === id)?.title || id;
 const downloadText = (name: string, text: string) => {
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -900,6 +931,7 @@ const lifeSummaryText = (state: AnyRecord) => {
     `Personal stats: ${fmtEntries(state.lifeStats, 18)}`,
     `Markets: ${fmtEntries(state.lifeMarkets, 8)}`,
     `Recovery strategy mix: ${fmtEntries(state.lifeStrategyCounts, 8) || "none"}`,
+    state.lifeOps ? buildOperationsRecordText(state.lifeOps) : "OPERATIONS RECORD\nNo operations or projects recorded.",
     "Recent life log:",
     log,
   ].join("\n");
@@ -1068,6 +1100,54 @@ function WarOperationsPanel({ ops, onStart, onAbandon }: AnyRecord) {
               </div>
               <div style={{ height: "3px", borderRadius: "2px", background: "var(--color-background-primary)", marginTop: "6px", overflow: "hidden" }}>
                 <div style={{ height: "100%", width: `${Math.min(100, Math.round((op.progress / Math.max(1, op.duration)) * 100))}%`, background: op.status === "ready" ? "#1D9E75" : op.status === "suspended" ? "#BA7517" : "#185FA5" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "7px", display: "grid", gap: "5px" }}>
+        {available.slice(0, 10).map(({ op, available: canStart, reasons }) => (
+          <button key={op.id} onClick={() => canStart && onStart(op.id)} disabled={!canStart}
+            title={reasons.join(" ")}
+            style={{ textAlign: "left", padding: "7px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)", background: canStart ? "var(--color-background-primary)" : "var(--color-background-secondary)", color: canStart ? "var(--color-text-primary)" : "var(--color-text-tertiary)", cursor: canStart ? "pointer" : "not-allowed", fontFamily: "var(--font-sans)" }}>
+            <div style={{ fontSize: "10px", fontWeight: 800 }}>{canStart ? "+ " : ""}{op.title}</div>
+            <div style={{ fontSize: "8px", lineHeight: 1.35 }}>{canStart ? `${op.durationDays} days · risk ${op.risk}` : reasons[0]}</div>
+          </button>
+        ))}
+      </div>
+      {history.length > 0 && (
+        <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "7px", display: "grid", gap: "3px" }}>
+          {history.slice(-3).reverse().map((h, i) => <div key={`${h.instanceId || h.id}-${i}`} style={{ fontSize: "9px", color: "var(--color-text-secondary)", lineHeight: 1.35 }}>D{h.day} · {h.title} — {h.outcome}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LifeProjectsPanel({ ops, onStart, onAbandon }: AnyRecord) {
+  const available = availableOps("life", ops);
+  const active = ops.activeOps || [];
+  const history = ops.opsHistory || [];
+  return (
+    <div style={{ ...S.panel, padding: "11px", display: "grid", gap: "8px" }}>
+      <div>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "3px" }}>Projects</div>
+        <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.45 }}>{active.length} active · {history.length} recorded</div>
+      </div>
+      <div style={{ display: "grid", gap: "5px" }}>
+        {active.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.45 }}>No active projects.</div> : active.map(op => {
+          const def = LIFE_PROJECTS.find(d => d.id === op.id);
+          return (
+            <div key={op.instanceId} style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "7px", background: "var(--color-background-secondary)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: "10px", fontWeight: 800, color: "var(--color-text-primary)" }}>{def?.title || op.id}</div>
+                  <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>{op.status} · {op.progress}/{op.duration} days · risk {def?.risk || "n/a"}</div>
+                </div>
+                <button onClick={() => onAbandon(op.instanceId)} style={{ fontSize: "8px", padding: "3px 6px", borderRadius: "var(--border-radius-md)", border: "0.5px solid #F09595", background: "#FCEBEB", color: "#A32D2D", cursor: "pointer", fontWeight: 800 }}>Abandon</button>
+              </div>
+              <div style={{ height: "3px", borderRadius: "2px", background: "var(--color-background-primary)", marginTop: "6px", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(100, Math.round((op.progress / Math.max(1, op.duration)) * 100))}%`, background: op.status === "ready" ? "#1D9E75" : op.status === "suspended" ? "#BA7517" : "#EF9F27" }} />
               </div>
             </div>
           );
@@ -1325,9 +1405,11 @@ function LifeMetric({ label, value, limit = 100 }: AnyRecord) {
   );
 }
 
-function LifeGameScreen({ profile, day, stats, markets, event, log, controls, onChoice, onBack }: AnyRecord) {
+function LifeGameScreen({ profile, day, stats, markets, event, log, controls, projects, onChoice, onBack, onStartProject, onAbandonProject, onResolveProject }: AnyRecord) {
   const progress = Math.round((day / profile.length) * 100);
   const lifePreview = (c) => Object.entries(c.e || {}).slice(0, 4).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
+  const resolvingProject = projects ? readyOps(projects)[0] : null;
+  const resolvingProjectDef = resolvingProject ? LIFE_PROJECTS.find(p => p.id === resolvingProject.id) : null;
   return (
     <div style={S.root}>
       {controls}
@@ -1355,6 +1437,7 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, controls, on
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(118px,1fr))", gap: "5px" }}>
               {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
             </div>
+            {projects && <div style={{ marginTop: "10px" }}><LifeProjectsPanel ops={projects} onStart={onStartProject} onAbandon={onAbandonProject} /></div>}
           </div>
           <div style={{ ...S.panel, padding: "10px" }}>
             <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", marginBottom: "7px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Market Ticker</div>
@@ -1366,26 +1449,37 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, controls, on
       </div>
       <div style={{ ...S.shell, paddingTop: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "10px" }}>
         <div>
-          <div style={{ ...S.panel, padding: "14px", marginBottom: "8px" }}>
-            <div style={{ fontSize: "9px", color: "#185FA5", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Local Crisis Event</div>
-            <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px" }}>{event.local.t}</div>
-            <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "10px" }}>{event.local.d}</div>
-            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "8px" }}>
-              {Object.entries(event.crisis || {}).slice(0, 4).map(([k, v]) => <span key={k} style={{ fontSize: "8px", padding: "2px 6px", borderRadius: "999px", background: riskBg(Number(v)), color: riskC(Number(v)), border: "0.5px solid currentColor" }}>{lifeLabel(k)} {v}</span>)}
+          {resolvingProject ? (
+            <div style={{ ...S.panel, padding: "14px", marginBottom: "8px", borderTop: "3px solid #1D9E75" }}>
+              <div style={{ fontSize: "9px", color: "#1D9E75", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Project Ready</div>
+              <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px" }}>{resolvingProjectDef?.title || resolvingProject.id}</div>
+              <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "10px" }}>The project has completed its work window. Resolve it before making the next daily choice.</div>
+              <button onClick={() => onResolveProject(resolvingProject.instanceId)} style={{ width: "100%", padding: "10px", border: "1px solid #97C459", borderRadius: "var(--border-radius-md)", background: "#EAF3DE", color: "#3B6D11", cursor: "pointer", fontWeight: 800, fontFamily: "var(--font-sans)" }}>Resolve Project</button>
             </div>
-            <div style={{ fontSize: "11px", color: "#854F0B", lineHeight: 1.6, background: "#fff7e8", border: "0.5px solid #EF9F27", borderRadius: "var(--border-radius-md)", padding: "8px 10px" }}><b>{event.role.t}:</b> {event.role.d}</div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {event.choices.map((c, i) => (
-              <button key={i} onClick={() => onChoice(c)} style={{ ...S.card, textAlign: "left", padding: "11px 12px", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", cursor: "pointer", fontSize: "11px", lineHeight: 1.45, fontFamily: "var(--font-sans)" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "#EF9F27"; e.currentTarget.style.background = "#fffaf2"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.background = "var(--color-background-primary)"; }}
-              >
-                <Tag tag={c.tag} /><span style={{ marginLeft: "8px" }}>{c.l}</span>
-                <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", marginTop: "4px" }}>{lifePreview(c)}</div>
-              </button>
-            ))}
-          </div>
+          ) : (
+            <>
+              <div style={{ ...S.panel, padding: "14px", marginBottom: "8px" }}>
+                <div style={{ fontSize: "9px", color: "#185FA5", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Local Crisis Event</div>
+                <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px" }}>{event.local.t}</div>
+                <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "10px" }}>{event.local.d}</div>
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "8px" }}>
+                  {Object.entries(event.crisis || {}).slice(0, 4).map(([k, v]) => <span key={k} style={{ fontSize: "8px", padding: "2px 6px", borderRadius: "999px", background: riskBg(Number(v)), color: riskC(Number(v)), border: "0.5px solid currentColor" }}>{lifeLabel(k)} {v}</span>)}
+                </div>
+                <div style={{ fontSize: "11px", color: "#854F0B", lineHeight: 1.6, background: "#fff7e8", border: "0.5px solid #EF9F27", borderRadius: "var(--border-radius-md)", padding: "8px 10px" }}><b>{event.role.t}:</b> {event.role.d}</div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {event.choices.map((c, i) => (
+                  <button key={i} onClick={() => onChoice(c)} style={{ ...S.card, textAlign: "left", padding: "11px 12px", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", cursor: "pointer", fontSize: "11px", lineHeight: 1.45, fontFamily: "var(--font-sans)" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#EF9F27"; e.currentTarget.style.background = "#fffaf2"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.background = "var(--color-background-primary)"; }}
+                  >
+                    <Tag tag={c.tag} /><span style={{ marginLeft: "8px" }}>{c.l}</span>
+                    <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", marginTop: "4px" }}>{lifePreview(c)}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <button onClick={onBack} style={{ marginTop: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-secondary)", padding: "8px 11px", cursor: "pointer", fontSize: "10px", fontWeight: 650 }}>End Run and Return to Menu</button>
         </div>
         <div style={{ ...S.panel, padding: "11px", maxHeight: "420px", overflow: "auto" }}>
@@ -1549,6 +1643,7 @@ export default function App() {
   const [lifeLog, setLifeLog] = useState<string[]>([]);
   const [lifeStrategyCounts, setLifeStrategyCounts] = useState<AnyRecord>({});
   const [lifeEnding, setLifeEnding] = useState<any>(null);
+  const [lifeOps, setLifeOps] = useState<OpsState>(() => createInitialOpsState("life"));
   const [saveAvailable, setSaveAvailable] = useState(() => !!storageGet(SAVE_KEY));
   const [saveMessage, setSaveMessage] = useState("");
 
@@ -1576,14 +1671,16 @@ export default function App() {
 
   const startLife = useCallback(() => {
     const profile = buildLifeProfile(lifeDraft);
+    const firstEvent = buildLifeEvent(1, profile);
     setLifeProfile(profile);
     setLifeStats(profile.stats);
     setLifeMarkets(profile.markets);
     setLifeDay(1);
-    setLifeEvent(buildLifeEvent(1, profile));
+    setLifeEvent(firstEvent);
     setLifeLog([]);
     setLifeStrategyCounts({});
     setLifeEnding(null);
+    setLifeOps(lifeOpsContext(createInitialOpsState("life"), { day: 1, profile, stats: profile.stats, markets: profile.markets, event: firstEvent }));
     setScreen("lifeGame");
   }, [lifeDraft]);
 
@@ -1591,20 +1688,22 @@ export default function App() {
     const isLife = screen === "lifeGame" || screen === "lifeEnding" || screen === "lifeSetup";
     const isWar = screen === "game" || screen === "ending";
     const syncedWarOps = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+    const syncedLifeOps = lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent });
     const payload = {
-      version: isWar ? SAVE_VERSION_WITH_OPERATIONS : 2,
+      version: isWar || isLife ? SAVE_VERSION_WITH_OPERATIONS : 2,
       mode: isLife ? "life" : isWar ? "war" : "menu",
       savedAt: new Date().toISOString(),
       screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden: saveSet(usedSudden), strikes, ending,
       oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents: saveSet(usedFactionEvents),
       fleetAssets, usedFleetEvents: saveSet(usedFleetEvents), fleetCommandPoints, fleetOrdersToday, usedChainEvents: saveSet(usedChainEvents), chainHistory,
       warOps: isWar ? serializeOpsStateForSave(syncedWarOps) : undefined,
-      opsRngState: isWar ? getRngState() : undefined,
+      lifeOps: isLife ? serializeOpsStateForSave(syncedLifeOps) : undefined,
+      opsRngState: isWar || isLife ? getRngState() : undefined,
       lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding,
     };
     storageSet(SAVE_KEY, JSON.stringify(payload));
     setSaveAvailable(true); setSaveMessage(`Saved ${payload.mode} campaign.`);
-  }, [screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, warOps, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
+  }, [screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, warOps, lifeOps, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
 
   const loadCampaign = useCallback(() => {
     const raw = storageGet(SAVE_KEY);
@@ -1620,6 +1719,7 @@ export default function App() {
       setUsedChainEvents(restoreSet(p.usedChainEvents)); setChainHistory(p.chainHistory || []);
       setWarOps(restoreOpsStateFromSave({ ...(p.warOps || {}), day: p.day || 1, act: p.act || 1, factionId: p.fid || null, stats: p.stats || {}, crisis: p.crisis || { ...DEFAULT_CRISIS }, fleets: p.fleetAssets || [], chainHistory: p.chainHistory || [] }, "war"));
       setLifeDraft(p.lifeDraft || lifeDraft); setLifeProfile(p.lifeProfile || null); setLifeStats(p.lifeStats || {}); setLifeMarkets(p.lifeMarkets || {}); setLifeDay(p.lifeDay || 1); setLifeEvent(p.lifeEvent || null); setLifeLog(p.lifeLog || []); setLifeStrategyCounts(p.lifeStrategyCounts || {}); setLifeEnding(p.lifeEnding || null);
+      setLifeOps(restoreOpsStateFromSave({ ...(p.lifeOps || {}), day: p.lifeDay || 1, campaignLength: p.lifeProfile?.length || p.lifeDraft?.length || 30, roleId: p.lifeProfile?.role?.id || null, cityId: p.lifeProfile?.spawn?.id || null, philosophyId: p.lifeProfile?.philosophy?.id || null, stats: p.lifeStats || {}, markets: p.lifeMarkets || {}, lifeEventTags: lifeEventTags(p.lifeEvent), cityEventTags: cityEventTags(p.lifeEvent) }, "life"));
       setScreen(p.screen === "lifeSetup" ? "lifeSetup" : p.mode === "life" ? (p.screen === "lifeEnding" ? "lifeEnding" : "lifeGame") : p.screen === "ending" ? "ending" : "game");
       setSaveAvailable(true); setSaveMessage(`Loaded ${p.mode || "saved"} campaign.`);
     } catch {
@@ -1634,15 +1734,16 @@ export default function App() {
 
   const exportSummary = useCallback(() => {
     const isLife = screen === "lifeGame" || screen === "lifeEnding";
-    const state = { screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, warOps: warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory }), lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts };
+    const state = { screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, warOps: warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory }), lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts, lifeOps: lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent }) };
     downloadText(`strait-protocol-${isLife ? "life" : "war"}-summary.txt`, isLife ? lifeSummaryText(state) : warSummaryText(state));
     setSaveMessage("Campaign summary exported.");
-  }, [screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, warOps, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
+  }, [screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, warOps, lifeOps, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts]);
 
   const restartActive = useCallback(() => {
     if ((screen === "game" || screen === "ending") && fid) { startGame(fid); setSaveMessage("War Room campaign restarted."); return; }
     if ((screen === "lifeGame" || screen === "lifeEnding") && lifeProfile) {
-      setLifeStats(lifeProfile.stats); setLifeMarkets(lifeProfile.markets); setLifeDay(1); setLifeEvent(buildLifeEvent(1, lifeProfile, lifeProfile.stats)); setLifeLog([]); setLifeStrategyCounts({}); setLifeEnding(null); setScreen("lifeGame"); setSaveMessage("Life campaign restarted.");
+      const firstEvent = buildLifeEvent(1, lifeProfile, lifeProfile.stats);
+      setLifeStats(lifeProfile.stats); setLifeMarkets(lifeProfile.markets); setLifeDay(1); setLifeEvent(firstEvent); setLifeLog([]); setLifeStrategyCounts({}); setLifeEnding(null); setLifeOps(lifeOpsContext(createInitialOpsState("life"), { day: 1, profile: lifeProfile, stats: lifeProfile.stats, markets: lifeProfile.markets, event: firstEvent })); setScreen("lifeGame"); setSaveMessage("Life campaign restarted.");
     }
   }, [screen, fid, startGame, lifeProfile]);
 
@@ -1686,6 +1787,44 @@ export default function App() {
     setSaveMessage(`Resolved ${result.entry.title}: ${result.entry.outcome}.`);
     setPhase(readyOps(result.state).length ? "opResolve" : "choose");
   }, [warOps, day, act, fid, stats, crisis, fleetAssets, chainHistory, recession, nukeAlert]);
+
+  const handleStartLifeProject = useCallback((projectId: string) => {
+    if (!lifeProfile) return;
+    const synced = lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent });
+    const result = startOp(synced, projectId);
+    if (!result.ok) { setSaveMessage(result.reasons[0] || "Project could not start."); return; }
+    setLifeOps(result.state);
+    setLifeStats(result.state.stats);
+    setLifeMarkets(result.state.markets);
+    setLifeLog(l => [...l, `D${lifeDay} · Project started: ${opTitle(projectId)}.`].slice(-12));
+    setSaveMessage(`Started ${opTitle(projectId)}.`);
+  }, [lifeOps, lifeDay, lifeProfile, lifeStats, lifeMarkets, lifeEvent]);
+
+  const handleAbandonLifeProject = useCallback((activeOpId: string) => {
+    if (!lifeProfile) return;
+    const synced = lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent });
+    const before = synced.activeOps.length;
+    const next = abandonOp(synced, activeOpId);
+    setLifeOps(next);
+    if (next.activeOps.length < before) {
+      setLifeLog(l => [...l, `D${lifeDay} · Project abandoned.`].slice(-12));
+      setSaveMessage("Project abandoned.");
+    }
+  }, [lifeOps, lifeDay, lifeProfile, lifeStats, lifeMarkets, lifeEvent]);
+
+  const handleResolveLifeProject = useCallback((activeOpId?: string) => {
+    if (!lifeProfile) return;
+    const synced = lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent });
+    const nextReady = activeOpId ? synced.activeOps.find(op => op.instanceId === activeOpId) : readyOps(synced)[0];
+    if (!nextReady) return;
+    const result = resolveOp(synced, nextReady.instanceId, opsRng);
+    if (!result.ok || !result.entry) { setSaveMessage(result.reason || "Project could not resolve."); return; }
+    setLifeOps(result.state);
+    setLifeStats(result.state.stats);
+    setLifeMarkets(result.state.markets);
+    setLifeLog(l => [...l, `D${lifeDay} · Project resolved: ${result.entry.title} — ${result.entry.outcome}.`].slice(-12));
+    setSaveMessage(`Resolved ${result.entry.title}: ${result.entry.outcome}.`);
+  }, [lifeOps, lifeDay, lifeProfile, lifeStats, lifeMarkets, lifeEvent]);
 
   const pickChoice = useCallback((c, sc) => {
     const crisisDelta = crisisImpact(c);
@@ -1799,23 +1938,30 @@ export default function App() {
   const pickLifeChoice = useCallback((choice) => {
     if (!lifeProfile || !lifeEvent) return;
     const resolved = resolveLifeChoice(lifeStats, lifeMarkets, lifeEvent, choice, lifeDay);
-    const nextLog = [...lifeLog, resolved.entry].slice(-12);
+    let nextStats = resolved.stats;
+    let nextMarkets = resolved.markets;
+    const tickedOps = tickOps(lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: nextStats, markets: nextMarkets, event: lifeEvent }), 1, opsRng);
+    nextStats = tickedOps.stats;
+    nextMarkets = tickedOps.markets;
+    const stalled = tickedOps.opsHistory.filter(entry => entry.outcome === "abandoned" && entry.day === tickedOps.day && entry.note === "stalled").map(entry => entry.title);
+    const nextLog = [...lifeLog, resolved.entry, ...stalled.map(title => `D${tickedOps.day} · Project stalled: ${title}.`)].slice(-12);
     const nextStrategies = { ...lifeStrategyCounts, [choice.strategy || "general"]: (lifeStrategyCounts[choice.strategy || "general"] || 0) + 1 };
     setLifeStrategyCounts(nextStrategies);
     if (lifeDay >= lifeProfile.length) {
-      setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
-      setLifeEnding(getLifeEnding(lifeProfile, resolved.stats, { strategyCounts: nextStrategies })); setScreen("lifeEnding"); return;
+      setLifeStats(nextStats); setLifeMarkets(nextMarkets); setLifeLog(nextLog); setLifeOps(tickedOps);
+      setLifeEnding(getLifeEnding(lifeProfile, nextStats, { strategyCounts: nextStrategies })); setScreen("lifeEnding"); return;
     }
     const nd = lifeDay + 1;
-    setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
-    setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile, resolved.stats));
-  }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
+    const nextEvent = buildLifeEvent(nd, lifeProfile, nextStats);
+    setLifeStats(nextStats); setLifeMarkets(nextMarkets); setLifeLog(nextLog);
+    setLifeDay(nd); setLifeEvent(nextEvent); setLifeOps(lifeOpsContext(tickedOps, { day: nd, profile: lifeProfile, stats: nextStats, markets: nextMarkets, event: nextEvent }));
+  }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts, lifeOps]);
 
   const activeControls = <CampaignControls mode={screen === "lifeGame" || screen === "lifeEnding" ? "Life Campaign" : "War Room Campaign"} canLoad={saveAvailable} message={saveMessage} onSave={saveCampaign} onLoad={loadCampaign} onClear={clearSave} onExport={exportSummary} onRestart={restartActive} />;
 
   if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} canLoad={saveAvailable} saveMessage={saveMessage} onLoad={loadCampaign} onClear={clearSave} /></div>;
   if (screen === "lifeSetup") return <LifeSetupScreen draft={lifeDraft} setDraft={setLifeDraft} onStart={startLife} onBack={() => setScreen("menu")} />;
-  if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} controls={activeControls} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} />;
+  if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} controls={activeControls} projects={lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent })} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} onStartProject={handleStartLifeProject} onAbandonProject={handleAbandonLifeProject} onResolveProject={handleResolveLifeProject} />;
   if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} controls={activeControls} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
   if (screen === "faction") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<FactionScreen onPick={startGame} /></div>;
   if (screen === "ending") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<EndingScreen F={F} ending={ending} stats={stats} controls={activeControls} onRestart={() => setScreen("faction")} /></div>;

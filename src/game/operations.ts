@@ -475,9 +475,17 @@ function applyEffects(state: OpsState, effects: StatEffect = {}) {
   for (const [key, value] of Object.entries(effects)) {
     if (key.includes(".")) continue;
     const bucket = bucketForKey(next, key);
-    bucket[key] = cl((bucket[key] ?? 0) + value);
+    bucket[key] = clampOpsValue(next, key, bucket, (bucket[key] ?? 0) + value);
   }
   return next;
+}
+
+function clampOpsValue(state: OpsState, key: string, bucket: Record<string, number>, value: number) {
+  if (state.mode === "life") {
+    if (bucket === state.markets) return Math.max(20, Math.min(260, Math.round(value)));
+    if (["cash", "debt", "monthlyIncome"].includes(key)) return Math.max(0, Math.min(180, Math.round(value)));
+  }
+  return cl(value);
 }
 
 function readStat(state: OpsState, key: string) {
