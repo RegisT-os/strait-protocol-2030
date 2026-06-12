@@ -530,16 +530,20 @@ const LIFE_LOCAL_EVENTS: AnyRecord[] = [
 ];
 
 const LIFE_ACTIONS: AnyRecord[] = [
-  { l: "Work overtime", tag: "WORK", e: { cash: 8, monthlyIncome: 1, jobSecurity: 3, stress: 7, health: -3, familyStability: -3 }, m: { jobs: 1 }, o: "You trade body and time for cashflow." },
-  { l: "Save cash", tag: "FIN", e: { cash: 5, morale: -2, foodSupply: -2, emergencyPreparedness: 2 }, m: {}, o: "You spend less than feels comfortable and keep options open." },
-  { l: "Buy supplies", tag: "HOME", e: { cash: -7, foodSupply: 9, medicineAccess: 3, emergencyPreparedness: 6 }, m: { food: 2, medicine: 1 }, o: "Your shelves look less dramatic and more useful." },
-  { l: "Help family", tag: "CARE", e: { cash: -5, familyStability: 10, morale: 3, stress: 2, reputation: 2 }, m: {}, o: "Someone close to you sleeps better tonight." },
-  { l: "Build skills", tag: "WORK", e: { careerCapital: 9, jobSecurity: 2, internetAccess: -2, stress: 3, cash: -2 }, m: { jobs: 1 }, o: "It does not solve today, but it changes who can hire you tomorrow." },
-  { l: "Apply overseas", tag: "DIP", e: { migrationReadiness: 10, cash: -5, stress: 4, familyStability: -2, careerCapital: 2 }, m: { usd: 2 }, o: "Forms, scans, references, and one more possible door." },
-  { l: "Invest/speculate", tag: "FIN", e: { cash: 9, debt: -2, stress: 7, legalRisk: 5, reputation: -4 }, m: { usd: 3 }, o: "You catch a volatile move and pretend it was all plan." },
-  { l: "Join community aid", tag: "CARE", e: { reputation: 10, morale: 5, foodSupply: -4, stress: 3, familyStability: 3 }, m: { food: -1 }, o: "The network becomes part of your emergency kit." },
-  { l: "Avoid risk", tag: "HOME", e: { legalRisk: -6, stress: -4, health: 2, cash: -2, careerCapital: -2 }, m: {}, o: "You leave upside on the table and keep trouble outside the door." },
-  { l: "Take risky opportunity", tag: "DEAL", e: { cash: 12, careerCapital: 5, stress: 8, legalRisk: 8, reputation: -3 }, m: { usd: 3 }, o: "It pays because not everyone would touch it." },
+  { l: "Work overtime", tag: "WORK", strategy: "money", e: { cash: 10, monthlyIncome: 1, jobSecurity: 3, stress: 8, health: -4, familyStability: -3 }, m: { jobs: 1 }, o: "You trade body and time for cashflow." },
+  { l: "Negotiate debt holiday", tag: "FIN", strategy: "money", e: { cash: 4, debt: -9, reputation: -2, legalRisk: 2, stress: 3 }, m: { usd: 1 }, o: "You buy breathing room, but lenders remember." },
+  { l: "Emergency freelance sprint", tag: "WORK", strategy: "career", e: { cash: 8, careerCapital: 6, jobSecurity: 2, stress: 7, internetAccess: -3 }, m: { jobs: 1 }, o: "A short contract becomes both income and proof of competence." },
+  { l: "Build crisis skills", tag: "WORK", strategy: "career", e: { careerCapital: 11, jobSecurity: 4, cash: -3, stress: 4, internetAccess: -2 }, m: { jobs: 1 }, o: "It does not solve today, but it changes who can hire you tomorrow." },
+  { l: "Buy supplies", tag: "HOME", strategy: "supplies", e: { cash: -9, foodSupply: 11, medicineAccess: 4, emergencyPreparedness: 7 }, m: { food: 2, medicine: 1 }, o: "Your shelves look less dramatic and more useful." },
+  { l: "Repair home fallback kit", tag: "HOME", strategy: "supplies", e: { emergencyPreparedness: 10, housingSecurity: 4, fuelAccess: 3, cash: -6, morale: -1 }, m: { rent: 1 }, o: "The apartment becomes less fragile even if it is not comfortable." },
+  { l: "Help family logistics", tag: "CARE", strategy: "family", e: { cash: -6, familyStability: 12, morale: 4, reputation: 3, stress: 3 }, m: {}, o: "Someone close to you sleeps better tonight." },
+  { l: "Join community aid", tag: "CARE", strategy: "community", e: { reputation: 11, morale: 6, foodSupply: -4, stress: 3, familyStability: 4 }, m: { food: -1 }, o: "The network becomes part of your emergency kit." },
+  { l: "Take a real recovery day", tag: "HEAL", strategy: "health", e: { health: 10, stress: -12, morale: 5, cash: -5, jobSecurity: -3 }, m: {}, o: "You stop the slide before your body makes the decision for you." },
+  { l: "Clinic and medicine run", tag: "HEAL", strategy: "health", e: { health: 8, medicineAccess: 8, cash: -7, stress: 2, legalRisk: -1 }, m: { medicine: 2 }, o: "You spend money now to avoid paying with health later." },
+  { l: "Apply overseas", tag: "DIP", strategy: "migration", e: { migrationReadiness: 12, cash: -6, stress: 5, familyStability: -2, careerCapital: 2 }, m: { usd: 2 }, o: "Forms, scans, references, and one more possible door." },
+  { l: "Secure documents and exit cash", tag: "DIP", strategy: "migration", e: { migrationReadiness: 9, legalRisk: -4, emergencyPreparedness: 3, cash: -8, morale: -2 }, m: { usd: 2 }, o: "You reduce the chance that panic ruins the exit window." },
+  { l: "Grey-market supply deal", tag: "DEAL", strategy: "grey", e: { cash: -4, foodSupply: 10, fuelAccess: 8, legalRisk: 8, reputation: -4, stress: 5 }, m: { food: -2, fuel: -2 }, o: "It solves a real shortage by creating a different kind of exposure." },
+  { l: "Take risky opportunity", tag: "DEAL", strategy: "grey", e: { cash: 14, careerCapital: 5, stress: 9, legalRisk: 9, reputation: -4 }, m: { usd: 3 }, o: "It pays because not everyone would touch it." },
 ];
 
 const LIFE_LENGTHS = [14, 30, 45, 60];
@@ -674,7 +678,75 @@ function buildLifeProfile(draft) {
     markets: { ...spawn.markets },
   };
 }
-function buildLifeEvent(day, profile) {
+const mergeEffect = (base = {}, extra = {}) => {
+  const out = { ...base };
+  Object.entries(extra).forEach(([k, v]) => { out[k] = Number(out[k] || 0) + Number(v); });
+  return out;
+};
+const cloneLifeAction = (a: AnyRecord): AnyRecord => ({ ...a, e: { ...(a.e || {}) }, m: { ...(a.m || {}) } });
+const actionByStrategy = (strategy: string, alt = 0) => LIFE_ACTIONS.filter(a => a.strategy === strategy)[alt] || LIFE_ACTIONS.find(a => a.strategy === strategy) || LIFE_ACTIONS[0];
+const recoveryStrategiesFor = (stats: StatMap) => {
+  const needs = [
+    { strategy: "money", score: (stats.cash < 45 ? 90 - stats.cash : 0) + Math.max(0, stats.debt - 60) },
+    { strategy: "career", score: Math.max(0, 58 - stats.jobSecurity) + Math.max(0, 52 - stats.careerCapital) },
+    { strategy: "family", score: Math.max(0, 62 - stats.familyStability) + Math.max(0, 45 - stats.morale) },
+    { strategy: "health", score: Math.max(0, 72 - stats.health) + Math.max(0, stats.stress - 45) },
+    { strategy: "supplies", score: Math.max(0, 58 - stats.foodSupply) + Math.max(0, 55 - stats.fuelAccess) + Math.max(0, 55 - stats.medicineAccess) + Math.max(0, 50 - stats.emergencyPreparedness) },
+    { strategy: "migration", score: Math.max(0, 60 - stats.migrationReadiness) + Math.max(0, stats.legalRisk - 38) },
+    { strategy: "grey", score: Math.max(0, 45 - stats.cash) + Math.max(0, 45 - stats.foodSupply) + Math.max(0, 45 - stats.fuelAccess) },
+  ];
+  return needs.sort((a, b) => b.score - a.score).filter(n => n.score > 0).map(n => n.strategy);
+};
+function contextualizeLifeAction(action: AnyRecord, profile: AnyRecord, crisis: StatMap, stats: StatMap) {
+  const a = cloneLifeAction(action);
+  const role = profile.role?.id;
+  const city = profile.spawn?.id;
+  const philosophy = profile.philosophy?.id;
+  const expensiveCity = ["singapore", "hong_kong", "london", "new_york", "tokyo", "dubai"].includes(city);
+  const highFinance = (crisis.financialContagion || 0) > 48;
+  const highOil = (crisis.oilShock || 0) > 50;
+  const highCyber = (crisis.cyberDisruption || 0) > 45;
+  const highHumanitarian = (crisis.humanitarianDamage || 0) > 45;
+  if (["finance", "compliance", "crypto"].includes(role) && ["FIN", "DEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { cash: 3, careerCapital: 2, stress: 1 });
+  if (["tech", "cyber"].includes(role) && ["WORK", "CYB"].includes(a.tag)) a.e = mergeEffect(a.e, { careerCapital: 3, jobSecurity: 2, stress: 1 });
+  if (["nurse", "civil"].includes(role) && ["CARE", "HEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { reputation: 3, medicineAccess: role === "nurse" ? 3 : 0 });
+  if (role === "port" && ["HOME", "DEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { foodSupply: 3, fuelAccess: 2 });
+  if (role === "migrant" && a.strategy === "migration") a.e = mergeEffect(a.e, { legalRisk: -2, migrationReadiness: 3 });
+  if (expensiveCity && ["HOME", "DIP", "HEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { cash: -2 });
+  if (["taipei", "seoul", "hong_kong"].includes(city) && a.strategy === "migration") a.e = mergeEffect(a.e, { migrationReadiness: 3, stress: 1 });
+  if (["kl_pj", "jakarta", "manila"].includes(city) && a.strategy === "supplies") a.e = mergeEffect(a.e, { fuelAccess: highOil ? 4 : 2 });
+  if (philosophy === "protector" && a.strategy === "family") a.e = mergeEffect(a.e, { familyStability: 4, cash: -1 });
+  if (philosophy === "civic" && a.strategy === "community") a.e = mergeEffect(a.e, { reputation: 4, morale: 2 });
+  if (philosophy === "exit" && a.strategy === "migration") a.e = mergeEffect(a.e, { migrationReadiness: 4, emergencyPreparedness: 2 });
+  if (philosophy === "opportunist" && a.strategy === "grey") a.e = mergeEffect(a.e, { cash: 4, legalRisk: 2, reputation: -1 });
+  if (highFinance && a.strategy === "money") a.e = mergeEffect(a.e, { cash: 3, stress: 2, debt: a.e.debt ? -2 : 0 });
+  if (highFinance && a.strategy === "career") a.e = mergeEffect(a.e, { jobSecurity: 2, stress: 1 });
+  if (highOil && a.strategy === "supplies") a.e = mergeEffect(a.e, { foodSupply: 3, fuelAccess: 3, cash: -2 });
+  if (highCyber && a.strategy === "career") a.e = mergeEffect(a.e, { internetAccess: -2, careerCapital: 2 });
+  if (highHumanitarian && a.strategy === "health") a.e = mergeEffect(a.e, { medicineAccess: 3, cash: -2 });
+  if ((stats.stress || 0) > 75 && a.strategy === "health") a.e = mergeEffect(a.e, { stress: -4, health: 3 });
+  if ((stats.foodSupply || 0) < 30 && a.strategy === "supplies") a.e = mergeEffect(a.e, { foodSupply: 4, morale: 1 });
+  if ((stats.cash || 0) < 25 && ["HOME", "DIP", "HEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { debt: 3, stress: 1 });
+  a.o = `${a.o} Impact reflects your ${profile.role.name}, ${profile.spawn.name}, and ${profile.philosophy.name.toLowerCase()} posture.`;
+  return a;
+}
+function buildLifeChoices(day, profile, crisis, stats) {
+  const chosen = new Map<string, AnyRecord>();
+  const add = (a?: AnyRecord) => { if (a) chosen.set(a.l, contextualizeLifeAction(a, profile, crisis, stats)); };
+  recoveryStrategiesFor(stats).slice(0, 3).forEach((s, i) => add(actionByStrategy(s, i % 2)));
+  add(LIFE_ACTIONS[(day - 1) % LIFE_ACTIONS.length]);
+  add(LIFE_ACTIONS[(day + 4) % LIFE_ACTIONS.length]);
+  add(profile.role.roleChoice ? { ...profile.role.roleChoice, strategy: profile.role.roleChoice.strategy || "career" } : null);
+  if (profile.philosophy.id === "protector") add(actionByStrategy("family"));
+  if (profile.philosophy.id === "civic") add(actionByStrategy("community"));
+  if (profile.philosophy.id === "exit") add(actionByStrategy("migration", 1));
+  if (profile.philosophy.id === "opportunist") add(actionByStrategy("grey", 1));
+  if ((crisis.financialContagion || 0) > 58 || (stats.cash || 0) < 30) add(actionByStrategy("money", 1));
+  if ((crisis.oilShock || 0) > 55 || (stats.foodSupply || 0) < 35) add(actionByStrategy("supplies"));
+  if ((crisis.escalationLevel || 0) > 55 || (stats.migrationReadiness || 0) < 35) add(actionByStrategy("migration"));
+  return Array.from(chosen.values()).slice(0, 6);
+}
+function buildLifeEvent(day, profile, currentStats = profile.stats) {
   const local = LIFE_LOCAL_EVENTS[(day - 1) % LIFE_LOCAL_EVENTS.length];
   const stage = Math.min(6, Math.ceil(day / 7));
   const crisis = {
@@ -699,7 +771,7 @@ function buildLifeEvent(day, profile) {
     medicineAccess: -Math.round(crisis.humanitarianDamage / 24),
     morale: -Math.round((crisis.humanitarianDamage + crisis.escalationLevel) / 36),
   };
-  const choices = [...LIFE_ACTIONS.slice((day - 1) % 5, ((day - 1) % 5) + 3), profile.role.roleChoice].filter(Boolean);
+  const choices = buildLifeChoices(day, profile, crisis, currentStats);
   return {
     local,
     role: { t: `${profile.role.name} Pressure`, d: profile.role.event },
@@ -713,12 +785,18 @@ function resolveLifeChoice(stats, markets, event, choice, day) {
   const drift = { food: rnd(0, 3) + Math.round((c.oilShock || 0) / 25), fuel: rnd(-1, 5) + Math.round((c.oilShock || 0) / 18), rent: rnd(0, 2) + Math.round((c.refugeePressure || 0) / 40), medicine: rnd(0, 3) + Math.round((c.humanitarianDamage || 0) / 28), usd: rnd(-2, 5) + Math.round((c.financialContagion || 0) / 35), jobs: -rnd(0, 2) - Math.round((c.financialContagion || 0) / 45) };
   const ns = lifeApplyStats(lifeApplyStats(lifeApplyStats(stats, event.local.e), event.pressure), choice.e);
   const nm = lifeApplyMarkets(lifeApplyMarkets(lifeApplyMarkets(markets, event.local.m), drift), choice.m);
-  const preview = Object.entries(choice.e || {}).slice(0, 3).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
-  const entry = `Day ${day}: ${event.local.t}. ${choice.l}. ${choice.o}${preview ? ` (${preview})` : ""}`;
+  const preview = Object.entries(choice.e || {}).slice(0, 5).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
+  const entry = `Day ${day}: ${event.local.t}. ${choice.l}. ${choice.o}${preview ? ` Consequences: ${preview}.` : ""}`;
   return { stats: ns, markets: nm, entry };
 }
-function getLifeEnding(profile, stats) {
-  const why = `You ended in ${profile.spawn.name} as a ${profile.role.name}: cash ${stats.cash}, debt ${stats.debt}, stress ${stats.stress}, reputation ${stats.reputation}.`;
+function lifeStrategyNote(counts: AnyRecord = {}) {
+  const top = Object.entries(counts).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+  if (!top || Number(top[1]) <= 0) return "";
+  const labels = { money: "cash and debt triage", career: "career recovery", family: "family stabilization", community: "community aid", health: "health and stress recovery", supplies: "supplies and preparedness", migration: "migration planning", grey: "grey-market risk-taking" };
+  return `Your most repeated recovery strategy was ${labels[top[0]] || top[0]} (${top[1]} choices).`;
+}
+function getLifeEnding(profile, stats, context: AnyRecord = {}) {
+  const why = `You ended in ${profile.spawn.name} as a ${profile.role.name}: cash ${stats.cash}, debt ${stats.debt}, stress ${stats.stress}, reputation ${stats.reputation}. ${lifeStrategyNote(context.strategyCounts)}`;
   if (stats.debt > 105 || (stats.cash < 22 && stats.debt > 78)) return { title: "Debt Collapse", grade: "F", body: `Compounding debt outran income and emergency cash. ${why}` };
   if (stats.cash > 118 && stats.reputation < 38) return { title: "Black Market King", grade: "B-", body: `You profited from shortages faster than trust could survive it. ${why}` };
   if (stats.cash > 126) return { title: "Crisis Millionaire", grade: "A-", body: `You converted volatility, income, and cash discipline into a balance sheet. ${why}` };
@@ -1274,6 +1352,7 @@ export default function App() {
   const [lifeDay, setLifeDay] = useState(1);
   const [lifeEvent, setLifeEvent] = useState<any>(null);
   const [lifeLog, setLifeLog] = useState<string[]>([]);
+  const [lifeStrategyCounts, setLifeStrategyCounts] = useState<AnyRecord>({});
   const [lifeEnding, setLifeEnding] = useState<any>(null);
 
   const F = fid ? FACTIONS[fid] : null;
@@ -1303,6 +1382,7 @@ export default function App() {
     setLifeDay(1);
     setLifeEvent(buildLifeEvent(1, profile));
     setLifeLog([]);
+    setLifeStrategyCounts({});
     setLifeEnding(null);
     setScreen("lifeGame");
   }, [lifeDraft]);
@@ -1410,14 +1490,16 @@ export default function App() {
     if (!lifeProfile || !lifeEvent) return;
     const resolved = resolveLifeChoice(lifeStats, lifeMarkets, lifeEvent, choice, lifeDay);
     const nextLog = [...lifeLog, resolved.entry].slice(-12);
+    const nextStrategies = { ...lifeStrategyCounts, [choice.strategy || "general"]: (lifeStrategyCounts[choice.strategy || "general"] || 0) + 1 };
+    setLifeStrategyCounts(nextStrategies);
     if (lifeDay >= lifeProfile.length) {
       setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
-      setLifeEnding(getLifeEnding(lifeProfile, resolved.stats)); setScreen("lifeEnding"); return;
+      setLifeEnding(getLifeEnding(lifeProfile, resolved.stats, { strategyCounts: nextStrategies })); setScreen("lifeEnding"); return;
     }
     const nd = lifeDay + 1;
     setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
-    setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile));
-  }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog]);
+    setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile, resolved.stats));
+  }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
 
   if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} /></div>;
   if (screen === "lifeSetup") return <LifeSetupScreen draft={lifeDraft} setDraft={setLifeDraft} onStart={startLife} onBack={() => setScreen("menu")} />;
