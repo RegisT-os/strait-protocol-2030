@@ -820,6 +820,67 @@ const S = {
   med: { fontSize: "13px" },
 };
 
+const SAVE_KEY = "strait-protocol-2030-campaign-v2";
+const MEMORY_SAVE: AnyRecord = {};
+const storageGet = (k: string) => typeof localStorage !== "undefined" ? localStorage.getItem(k) : MEMORY_SAVE[k] || null;
+const storageSet = (k: string, v: string) => { if (typeof localStorage !== "undefined") localStorage.setItem(k, v); else MEMORY_SAVE[k] = v; };
+const storageRemove = (k: string) => { if (typeof localStorage !== "undefined") localStorage.removeItem(k); else delete MEMORY_SAVE[k]; };
+const saveSet = (s?: Set<string>) => Array.from(s || []);
+const restoreSet = (a?: string[]) => new Set(a || []);
+const fmtEntries = (obj: AnyRecord = {}, limit = 8) => Object.entries(obj).slice(0, limit).map(([k, v]) => `${k}: ${v}`).join(", ");
+const downloadText = (name: string, text: string) => {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+};
+const warSummaryText = (state: AnyRecord) => {
+  const F = state.fid ? FACTIONS[state.fid] : null;
+  const fleet = fleetSummary(state.fleetAssets || []);
+  const chains = (state.chainHistory || []).map((c) => `- D${c.day}: ${c.t}`).join("\n") || "- No major crisis chains recorded yet.";
+  const timeline = (state.timeline || []).slice(-6).map((t) => `- D${t.day}: ${t.title} - ${t.body}`).join("\n") || "- No turning points recorded yet.";
+  const log = (state.warLog || []).slice(-8).map((l) => `- ${l}`).join("\n") || "- No War Room decisions recorded yet.";
+  return [
+    "STRAIT PROTOCOL: 2030 - War Room Summary",
+    `Faction: ${F ? `${F.name} / ${F.sub}` : state.fid || "Unknown"}`,
+    `Day ${state.day}/45, Act ${state.act}, Turn ${Number(state.turn || 0) + 1}, Phase: ${state.phase}`,
+    `Core stats: ${fmtEntries(state.stats, 14)}`,
+    `Global crisis stats: ${fmtEntries(state.crisis, 15)}`,
+    `Decision mix: ${fmtEntries(state.decisionCounts, 10) || "none"}`,
+    `Fleet outcomes: sea control ${fleet.seaControl}, readiness ${fleet.readiness}, supply ${fleet.supply}, fuel ${fleet.fuel}, threat ${fleet.threat}`,
+    `Fleet command points remaining: ${state.fleetCommandPoints}/${FLEET_COMMAND_POINTS_PER_DAY}`,
+    "Major crisis chains:",
+    chains,
+    "Recent turning points:",
+    timeline,
+    "Recent log:",
+    log,
+  ].join("\n");
+};
+const lifeSummaryText = (state: AnyRecord) => {
+  const profile = state.lifeProfile;
+  const log = (state.lifeLog || []).slice(-10).map((l) => `- ${l}`).join("\n") || "- No Life decisions recorded yet.";
+  return [
+    "STRAIT PROTOCOL: 2030 - Life During Chaos Summary",
+    `Profile: ${profile ? `${profile.spawn?.name} / ${profile.role?.name} / ${profile.philosophy?.name}` : "No active profile"}`,
+    `Day ${state.lifeDay}/${profile?.length || "?"}`,
+    `Personal stats: ${fmtEntries(state.lifeStats, 18)}`,
+    `Markets: ${fmtEntries(state.lifeMarkets, 8)}`,
+    `Recovery strategy mix: ${fmtEntries(state.lifeStrategyCounts, 8) || "none"}`,
+    "Recent life log:",
+    log,
+  ].join("\n");
+};
+const whyWarChoice = (chosen: AnyRecord, crisis: StatMap = {}) => {
+  if (!chosen) return "";
+  const pressure = Object.keys(chosen.pressureDelta || {}).length ? "Faction pressure moved because this response matched or strained your faction's internal politics." : "";
+  const crisisHit = Object.entries(chosen.crisisDelta || {}).filter(([, v]) => Number(v) !== 0).map(([k]) => CRISIS_META[k]?.label || k).slice(0, 3).join(", ");
+  const risk = chosen.c.type === "bad" ? "This was a high-risk response; the payoff came with structural damage." : chosen.c.type === "good" ? "This was a stabilizing response; it traded speed or resources for resilience." : "This was a trade-off response; it solved one pressure while moving another.";
+  const nuclear = (crisis.nuclearRisk || 0) >= 50 ? " Nuclear risk is now high enough to color later events and endings." : "";
+  return `${risk} ${pressure} ${crisisHit ? `It directly affected ${crisisHit}.` : ""}${nuclear}`.trim();
+};
+
 // ─── SUB-COMPONENTS ───────────────────────────────────────────────────────────
 function Tag({ tag, strike = false }: AnyRecord) {
   const col = tc(tag);
@@ -934,7 +995,7 @@ function WarRoomSidePanel({ log, timeline }: AnyRecord) {
     <div style={{ display: "grid", gap: "8px" }}>
       <div style={{ ...S.panel, padding: "11px", maxHeight: "260px", overflow: "auto" }}>
         <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Crisis Timeline</div>
-        {timeline.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No turning points recorded yet.</div> : timeline.slice().reverse().map((t, i) => (
+        {timeline.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.55 }}>No turning points recorded yet. Major decisions, fleet orders, and crisis chains will appear here once the campaign starts bending history.</div> : timeline.slice().reverse().map((t, i) => (
           <div key={i} style={{ borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>
             <div style={{ fontSize: "9px", color: "#854F0B", fontWeight: 800 }}>D{t.day} · Act {t.act} · {t.title}</div>
             <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45 }}>{t.body}</div>
@@ -943,9 +1004,29 @@ function WarRoomSidePanel({ log, timeline }: AnyRecord) {
       </div>
       <div style={{ ...S.panel, padding: "11px", maxHeight: "300px", overflow: "auto" }}>
         <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>War Room Log</div>
-        {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No decisions recorded yet.</div> : log.slice().reverse().map((l, i) => (
+        {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.55 }}>No decisions recorded yet. Your choices, blocked fleet orders, sudden events, and consequence notes will collect here.</div> : log.slice().reverse().map((l, i) => (
           <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.5, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function CampaignControls({ mode, canLoad, message, onSave, onLoad, onClear, onExport, onRestart }: AnyRecord) {
+  const btn = (label, fn, disabled = false, tone = "plain") => (
+    <button onClick={fn} disabled={disabled} style={{ fontSize: "9px", padding: "5px 8px", borderRadius: "var(--border-radius-md)", border: `0.5px solid ${tone === "danger" ? "#F09595" : tone === "good" ? "#97C459" : "var(--color-border-tertiary)"}`, background: disabled ? "var(--color-background-secondary)" : tone === "danger" ? "#FCEBEB" : tone === "good" ? "#EAF3DE" : "var(--color-background-primary)", color: disabled ? "var(--color-text-tertiary)" : tone === "danger" ? "#A32D2D" : tone === "good" ? "#3B6D11" : "var(--color-text-secondary)", cursor: disabled ? "not-allowed" : "pointer", fontWeight: 700, fontFamily: "var(--font-sans)" }}>{label}</button>
+  );
+  return (
+    <div style={{ padding: "6px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.72)" }}>
+      <div style={{ maxWidth: "1120px", margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+        <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", lineHeight: 1.35 }}><b style={{ color: "var(--color-text-secondary)" }}>{mode}</b>{message ? ` - ${message}` : ""}</div>
+        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+          {btn("Save", onSave, false, "good")}
+          {btn("Load", onLoad, !canLoad)}
+          {btn("Clear Save", onClear, !canLoad, "danger")}
+          {btn("Export Summary", onExport)}
+          {btn("Restart", onRestart, false, "danger")}
+        </div>
       </div>
     </div>
   );
@@ -1048,7 +1129,7 @@ function FactionScreen({ onPick }: AnyRecord) {
   );
 }
 
-function MainMenu({ onWar, onLife }: AnyRecord) {
+function MainMenu({ onWar, onLife, canLoad, onLoad, onClear, saveMessage }: AnyRecord) {
   const modeCard = (title, eyebrow, body, accent, bg, onClick, chips) => (
     <button onClick={onClick}
       style={{ ...S.panel, cursor: "pointer", padding: "18px", textAlign: "left", fontFamily: "var(--font-sans)", minHeight: "210px", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden" }}
@@ -1088,6 +1169,13 @@ function MainMenu({ onWar, onLife }: AnyRecord) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "12px" }}>
         {modeCard("War Room Mode", "Strategic Command", "Play the current strategic crisis game with factions, fleets, diplomatic choices, sudden events, and national endings.", "#185FA5", "#E6F1FB", onWar, ["Factions", "Fleets", "Crisis Cards", "Endings"])}
         {modeCard("Life During Chaos Mode", "Civilian Survival", "Play a compact survival RPG with cities, roles, household pressure, markets, crisis events, and civilian endings.", "#854F0B", "#FAEEDA", onLife, ["Cities", "Roles", "Markets", "Event Log"])}
+      </div>
+      <div style={{ ...S.panel, padding: "10px", marginTop: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+        <div style={{ fontSize: "10px", color: "var(--color-text-secondary)" }}>{saveMessage || (canLoad ? "A saved campaign is available on this browser." : "No saved campaign found on this browser.")}</div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          <button onClick={onLoad} disabled={!canLoad} style={{ padding: "7px 10px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)", background: canLoad ? "var(--color-background-primary)" : "var(--color-background-secondary)", color: canLoad ? "var(--color-text-primary)" : "var(--color-text-tertiary)", cursor: canLoad ? "pointer" : "not-allowed", fontSize: "10px", fontWeight: 700 }}>Load Saved Campaign</button>
+          <button onClick={onClear} disabled={!canLoad} style={{ padding: "7px 10px", borderRadius: "var(--border-radius-md)", border: "0.5px solid #F09595", background: canLoad ? "#FCEBEB" : "var(--color-background-secondary)", color: canLoad ? "#A32D2D" : "var(--color-text-tertiary)", cursor: canLoad ? "pointer" : "not-allowed", fontSize: "10px", fontWeight: 700 }}>Clear Save</button>
+        </div>
       </div>
     </div>
   );
@@ -1157,11 +1245,12 @@ function LifeMetric({ label, value, limit = 100 }: AnyRecord) {
   );
 }
 
-function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, onBack }: AnyRecord) {
+function LifeGameScreen({ profile, day, stats, markets, event, log, controls, onChoice, onBack }: AnyRecord) {
   const progress = Math.round((day / profile.length) * 100);
   const lifePreview = (c) => Object.entries(c.e || {}).slice(0, 4).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
   return (
     <div style={S.root}>
+      {controls}
       <div style={{ ...S.shell, paddingTop: "10px", paddingBottom: "10px" }}>
         <div style={{ ...S.panel, padding: "12px 14px", borderTop: "3px solid #EF9F27" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start", flexWrap: "wrap", marginBottom: "9px" }}>
@@ -1221,20 +1310,29 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, onChoice, on
         </div>
         <div style={{ ...S.panel, padding: "11px", maxHeight: "420px", overflow: "auto" }}>
           <div style={{ fontSize: "10px", fontWeight: 800, color: "var(--color-text-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Event Log</div>
-          {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No decisions recorded yet.</div> : log.slice().reverse().map((l, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>)}
+          {log.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.55 }}>No life decisions recorded yet. Recovery choices, trade-offs, market pressure, and survival notes will appear here.</div> : log.slice().reverse().map((l, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "6px 0" }}>{l}</div>)}
         </div>
       </div>
     </div>
   );
 }
 
-function LifeEndingScreen({ ending, profile, stats, onRestart, onMenu }: AnyRecord) {
+function LifeEndingScreen({ ending, profile, stats, controls, onRestart, onMenu }: AnyRecord) {
   return (
     <div style={{ ...S.root, padding: "22px 14px", textAlign: "center" }}>
+      {controls}
       <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", letterSpacing: "0.08em", marginBottom: "12px" }}>LIFE DURING CHAOS · {profile.spawn.name}</div>
       <div style={{ fontSize: "20px", fontWeight: 600, color: "#854F0B", marginBottom: "4px" }}>{ending.title}</div>
       <div style={{ display: "inline-block", padding: "3px 18px", border: "1.5px solid #EF9F27", borderRadius: "18px", background: "#FAEEDA", color: "#854F0B", fontWeight: 600, marginBottom: "12px" }}>{ending.grade}</div>
       <div style={{ maxWidth: "520px", margin: "0 auto 14px", fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.75 }}>{ending.body}</div>
+      <div style={{ maxWidth: "520px", margin: "0 auto 14px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "6px", textAlign: "left" }}>
+        {[["Role Note", profile.role.note], ["City Note", profile.spawn.note], ["Philosophy", profile.philosophy.note]].map(([k, v]) => (
+          <div key={k} style={{ ...S.card, padding: "8px" }}>
+            <div style={{ fontSize: "8px", color: "#854F0B", textTransform: "uppercase", fontWeight: 800 }}>{k}</div>
+            <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, marginTop: "3px" }}>{v}</div>
+          </div>
+        ))}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "4px", maxWidth: "520px", margin: "0 auto 16px" }}>
         {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
       </div>
@@ -1251,15 +1349,18 @@ function ManualOverlay({ onClose }: AnyRecord) {
     <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(25,25,23,0.36)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
       <div style={{ width: "min(520px, 100%)", background: "var(--color-background-primary)", border: "1px solid var(--color-border-primary)", borderRadius: "var(--border-radius-lg)", padding: "16px", boxShadow: "0 18px 60px rgba(0,0,0,0.22)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", marginBottom: "10px" }}>
-          <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--color-text-primary)" }}>War Room Manual</div>
+          <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--color-text-primary)" }}>Manual / Help</div>
           <button onClick={onClose} style={{ border: "1px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-secondary)", cursor: "pointer", padding: "5px 9px", fontSize: "11px", fontFamily: "var(--font-sans)" }}>Close</button>
         </div>
         <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.7 }}>
-          <p style={{ margin: "0 0 8px" }}>Each turn is a crisis day inside a six-act arc: outbreak, alliance formation, economic war, military threshold, regional spillover, and endgame. Your queue now blends the original scenario deck with selected Fable-derived openings, financial shocks, logistics bottlenecks, strike windows, and ceasefire events.</p>
-          <p style={{ margin: "0 0 8px" }}>Pick a faction, read the card, and choose one response. Choices shift public stats and faction-specific pressure stats such as coalition, politburo, oligarchs, food, unity, Malacca control, P5 cohesion, or humanitarian access.</p>
-          <p style={{ margin: "0 0 8px" }}>Fleet Status shows deployed forces, threat level, transit ETA, and supply days. Logistics cards matter: insurance, convoy routing, fuel, ports, and aid corridors can be as decisive as combat power.</p>
-          <p style={{ margin: "0 0 8px" }}>Strike-tagged choices are deliberately costly. They can improve military position, raise nuclear alert, damage legitimacy, and steer the ending toward pyrrhic or fractured outcomes.</p>
-          <p style={{ margin: 0 }}>The run ends at Day 45, the final act, or when the crisis queue is exhausted. Endings are chosen from your final stats, so survival, credibility, cash, cohesion, and restraint all matter.</p>
+          <p style={{ margin: "0 0 8px" }}><b>War Room:</b> each turn is a crisis day inside a six-act arc. Choose a faction, read the crisis card, and pick one response. Decisions move public stats, global crisis stats, faction pressure stats, the timeline, and the ending.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Global crisis stats:</b> stability, escalation, finance, oil, food, semiconductors, cyber, refugees, media panic, alliances, trust, weariness, humanitarian damage, and nuclear risk shape follow-up events.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Faction pressure stats:</b> each faction has its own internal stress model: caucuses, allies, Politburo, PLA, EU council unity, P5 consensus, oligarchs, coup risk, Malacca control, and more.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Fleet command points:</b> fleets can receive limited orders per day. Each fleet can only be ordered once per day, and command points reset after advancing the turn.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Crisis chains:</b> bad stats, prior choices, fleet posture, and timing can trigger follow-up shocks such as banking cyberattacks, tanker insurance spikes, refugee surges, and ceasefire offers.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Life During Chaos:</b> play a civilian survival RPG. Daily recovery actions can rebuild cash, career, family, health, supplies, migration readiness, and community trust, but every recovery has trade-offs.</p>
+          <p style={{ margin: "0 0 8px" }}><b>Endings:</b> final outcomes explain your stats, decision mix, crisis chains, fleet condition, recovery strategy, and role or faction-specific pressure.</p>
+          <p style={{ margin: 0 }}><b>Save and export:</b> saves live only in this browser through localStorage. Export creates a readable text summary for sharing or archiving.</p>
         </div>
       </div>
     </div>
@@ -1272,15 +1373,18 @@ function ManualButton({ onClick }: AnyRecord) {
   );
 }
 
-function EndingScreen({ F, ending, stats, onRestart }: AnyRecord) {
+function EndingScreen({ F, ending, stats, controls, onRestart }: AnyRecord) {
   if (!ending) return null;
   const gradeColor = { "A+": "#1D9E75", "A": "#1D9E75", "A-": "#3B6D11", "B+": "#639922", "B": "#639922", "B-": "#BA7517", "C+": "#BA7517", "C": "#BA7517", "C-": "#854F0B", "D": "#E24B4A", "F": "#A32D2D" }[ending.grade] || "#888";
   const gradeBg = { "A+": "#EAF3DE", "A": "#EAF3DE", "A-": "#EAF3DE", "B+": "#EAF3DE", "B": "#EAF3DE", "B-": "#FAEEDA", "C+": "#FAEEDA", "C": "#FAEEDA", "C-": "#FAEEDA", "D": "#FCEBEB", "F": "#FCEBEB" }[ending.grade] || "#f5f5f5";
   const ctx = ending.context || {};
   const counts = Object.entries(ctx.decisionCounts || {}).filter(([, v]) => Number(v) > 0);
   const turns = (ctx.timeline || []).slice(-4).reverse();
+  const chains = (ctx.chains || []).slice(-4).reverse();
+  const fleet = fleetSummary(ctx.fleets || []);
   return (
     <div style={{ padding: "20px 14px", textAlign: "center" }}>
+      {controls}
       <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", marginBottom: "16px", letterSpacing: "0.08em" }}>STRAIT PROTOCOL: 2030 · DAY 45</div>
       <div style={{ fontSize: "28px", marginBottom: "8px" }}>{F.flag}</div>
       <div style={{ fontSize: "18px", fontWeight: 500, color: gradeColor, marginBottom: "4px" }}>{ending.title}</div>
@@ -1298,6 +1402,16 @@ function EndingScreen({ F, ending, stats, onRestart }: AnyRecord) {
           </div>
         </div>
       )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "8px", maxWidth: "620px", margin: "0 auto 16px", textAlign: "left" }}>
+        <div style={{ ...S.card, padding: "10px" }}>
+          <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Crisis Chains</div>
+          {chains.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)" }}>No major crisis chains dominated this run.</div> : chains.map((c, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}>D{c.day}: {c.t}</div>)}
+        </div>
+        <div style={{ ...S.card, padding: "10px" }}>
+          <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Fleet Outcome</div>
+          <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55 }}>Sea control {fleet.seaControl}. Readiness {fleet.readiness}. Supply {fleet.supply}. Fuel {fleet.fuel}. Threat {fleet.threat}.</div>
+        </div>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "4px", maxWidth: "460px", margin: "0 auto 18px" }}>
         {Object.entries(stats as StatMap).map(([k, v]) => (
           <div key={k} style={{ background: "var(--color-background-secondary)", borderRadius: "6px", padding: "4px 4px", textAlign: "center", border: `0.5px solid ${vBg(v)}` }}>
@@ -1354,6 +1468,8 @@ export default function App() {
   const [lifeLog, setLifeLog] = useState<string[]>([]);
   const [lifeStrategyCounts, setLifeStrategyCounts] = useState<AnyRecord>({});
   const [lifeEnding, setLifeEnding] = useState<any>(null);
+  const [saveAvailable, setSaveAvailable] = useState(() => !!storageGet(SAVE_KEY));
+  const [saveMessage, setSaveMessage] = useState("");
 
   const F = fid ? FACTIONS[fid] : null;
 
@@ -1386,6 +1502,60 @@ export default function App() {
     setLifeEnding(null);
     setScreen("lifeGame");
   }, [lifeDraft]);
+
+  const saveCampaign = useCallback(() => {
+    const isLife = screen === "lifeGame" || screen === "lifeEnding" || screen === "lifeSetup";
+    const isWar = screen === "game" || screen === "ending";
+    const payload = {
+      version: 2,
+      mode: isLife ? "life" : isWar ? "war" : "menu",
+      savedAt: new Date().toISOString(),
+      screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden: saveSet(usedSudden), strikes, ending,
+      oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents: saveSet(usedFactionEvents),
+      fleetAssets, usedFleetEvents: saveSet(usedFleetEvents), fleetCommandPoints, fleetOrdersToday, usedChainEvents: saveSet(usedChainEvents), chainHistory,
+      lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding,
+    };
+    storageSet(SAVE_KEY, JSON.stringify(payload));
+    setSaveAvailable(true); setSaveMessage(`Saved ${payload.mode} campaign.`);
+  }, [screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
+
+  const loadCampaign = useCallback(() => {
+    const raw = storageGet(SAVE_KEY);
+    if (!raw) { setSaveMessage("No saved campaign found."); setSaveAvailable(false); return; }
+    try {
+      const p = JSON.parse(raw);
+      setFid(p.fid || null); setStats(p.stats || {}); setQueue(p.queue || []); setQi(p.qi || 0); setDay(p.day || 1); setAct(p.act || 1); setTurn(p.turn || 0); setPhase(p.phase || "choose"); setChosen(p.chosen || null); setSudden(p.sudden || null);
+      setUsedSudden(restoreSet(p.usedSudden)); setStrikes(p.strikes || 0); setEnding(p.ending || null);
+      setOil(p.oil || 145); setRecession(p.recession || 22); setNukeAlert(p.nukeAlert || 1); setTaiwanFuel(p.taiwanFuel || 61); setCrisis(p.crisis || { ...DEFAULT_CRISIS });
+      setWarLog(p.warLog || []); setTimeline(p.timeline || []); setDecisionCounts(p.decisionCounts || emptyDecisionCounts()); setUsedFactionEvents(restoreSet(p.usedFactionEvents));
+      setFleetAssets(p.fleetAssets || []); setUsedFleetEvents(restoreSet(p.usedFleetEvents)); setFleetCommandPoints(p.fleetCommandPoints ?? FLEET_COMMAND_POINTS_PER_DAY); setFleetOrdersToday(p.fleetOrdersToday || {});
+      setUsedChainEvents(restoreSet(p.usedChainEvents)); setChainHistory(p.chainHistory || []);
+      setLifeDraft(p.lifeDraft || lifeDraft); setLifeProfile(p.lifeProfile || null); setLifeStats(p.lifeStats || {}); setLifeMarkets(p.lifeMarkets || {}); setLifeDay(p.lifeDay || 1); setLifeEvent(p.lifeEvent || null); setLifeLog(p.lifeLog || []); setLifeStrategyCounts(p.lifeStrategyCounts || {}); setLifeEnding(p.lifeEnding || null);
+      setScreen(p.screen === "lifeSetup" ? "lifeSetup" : p.mode === "life" ? (p.screen === "lifeEnding" ? "lifeEnding" : "lifeGame") : p.screen === "ending" ? "ending" : "game");
+      setSaveAvailable(true); setSaveMessage(`Loaded ${p.mode || "saved"} campaign.`);
+    } catch {
+      setSaveMessage("Save could not be loaded. Clear it and save again.");
+    }
+  }, [lifeDraft]);
+
+  const clearSave = useCallback(() => {
+    storageRemove(SAVE_KEY);
+    setSaveAvailable(false); setSaveMessage("Saved campaign cleared.");
+  }, []);
+
+  const exportSummary = useCallback(() => {
+    const isLife = screen === "lifeGame" || screen === "lifeEnding";
+    const state = { screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts };
+    downloadText(`strait-protocol-${isLife ? "life" : "war"}-summary.txt`, isLife ? lifeSummaryText(state) : warSummaryText(state));
+    setSaveMessage("Campaign summary exported.");
+  }, [screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
+
+  const restartActive = useCallback(() => {
+    if ((screen === "game" || screen === "ending") && fid) { startGame(fid); setSaveMessage("War Room campaign restarted."); return; }
+    if ((screen === "lifeGame" || screen === "lifeEnding") && lifeProfile) {
+      setLifeStats(lifeProfile.stats); setLifeMarkets(lifeProfile.markets); setLifeDay(1); setLifeEvent(buildLifeEvent(1, lifeProfile, lifeProfile.stats)); setLifeLog([]); setLifeStrategyCounts({}); setLifeEnding(null); setScreen("lifeGame"); setSaveMessage("Life campaign restarted.");
+    }
+  }, [screen, fid, startGame, lifeProfile]);
 
   const pickChoice = useCallback((c, sc) => {
     const crisisDelta = crisisImpact(c);
@@ -1501,12 +1671,14 @@ export default function App() {
     setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile, resolved.stats));
   }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
 
-  if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} /></div>;
+  const activeControls = <CampaignControls mode={screen === "lifeGame" || screen === "lifeEnding" ? "Life Campaign" : "War Room Campaign"} canLoad={saveAvailable} message={saveMessage} onSave={saveCampaign} onLoad={loadCampaign} onClear={clearSave} onExport={exportSummary} onRestart={restartActive} />;
+
+  if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} canLoad={saveAvailable} saveMessage={saveMessage} onLoad={loadCampaign} onClear={clearSave} /></div>;
   if (screen === "lifeSetup") return <LifeSetupScreen draft={lifeDraft} setDraft={setLifeDraft} onStart={startLife} onBack={() => setScreen("menu")} />;
-  if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} />;
-  if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
+  if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} controls={activeControls} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} />;
+  if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} controls={activeControls} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
   if (screen === "faction") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<FactionScreen onPick={startGame} /></div>;
-  if (screen === "ending") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<EndingScreen F={F} ending={ending} stats={stats} onRestart={() => setScreen("faction")} /></div>;
+  if (screen === "ending") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<EndingScreen F={F} ending={ending} stats={stats} controls={activeControls} onRestart={() => setScreen("faction")} /></div>;
   if (!F) return null;
 
   const sc = queue[qi];
@@ -1519,6 +1691,7 @@ export default function App() {
     <div style={S.root}>
       <ManualButton onClick={() => setManualOpen(true)} />
       {manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}
+      {activeControls}
       {/* Header */}
       <div style={{ background: "rgba(255,255,255,0.84)", borderBottom: "0.5px solid var(--color-border-tertiary)", padding: "8px 14px", boxShadow: "0 6px 20px rgba(20,35,45,0.05)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "6px" }}>
@@ -1632,6 +1805,7 @@ export default function App() {
                 <span style={{ color: "var(--color-text-primary)" }}>{chosen.c.l}</span>
               </div>
               <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "8px" }}>{chosen.c.o}</div>
+              <div style={{ fontSize: "10px", color: F.color, lineHeight: 1.55, marginBottom: "8px", background: F.bg, border: `0.5px solid ${F.bd}`, borderRadius: "var(--border-radius-md)", padding: "7px 9px" }}><b>Why this happened:</b> {whyWarChoice(chosen, crisis)}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
                 {Object.entries(chosen.c.e as StatMap).map(([k, v]) => v !== 0 ? (
                   <span key={k} style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "6px", background: v > 0 ? "#EAF3DE" : "#FCEBEB", border: `0.5px solid ${v > 0 ? "#97C459" : "#F09595"}`, color: v > 0 ? "#3B6D11" : "#A32D2D", fontWeight: 500 }}>
