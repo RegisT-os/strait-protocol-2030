@@ -188,6 +188,74 @@ const factionEndingNote = (fid: string, st: StatMap) => {
   if (fid === "asean") return st.aseanUnity > 65 && st.currencyStability > 45 ? "ASEAN's neutrality survived because the bloc and currencies held together." : "Neutrality was weakened by bloc fracture and currency pressure.";
   return "";
 };
+const fleetRisk = (t = "Low") => ({ None: 5, Low: 18, Medium: 38, High: 62, Critical: 82, Active: 64, Imminent: 74, Strategic: 70, "N/A": 5 }[t] || 35);
+const fleetMissionFor = (fid: string, fl: AnyRecord) => {
+  const text = `${fl.type} ${fl.status} ${fl.front}`.toLowerCase();
+  if (fid === "un") return text.includes("relief") || text.includes("wfp") ? "Relief corridor" : "Observer access";
+  if (fid === "eu") return text.includes("carrier") ? "Naval support option" : "Sanctions/logistics support";
+  if (fid === "china" && text.includes("amphib")) return "Amphibious pressure";
+  if (fid === "china") return "Blockade enforcement";
+  if (fid === "asean") return text.includes("malacca") ? "Malacca control" : "Neutrality patrol";
+  if (fid === "russia") return text.includes("convoy") ? "Energy convoy" : "Opportunist pressure";
+  if (fid === "north_korea") return text.includes("rocket") || text.includes("artillery") ? "Missile/artillery coercion" : "Regime defense";
+  return text.includes("carrier") ? "Carrier deterrence" : "Theater logistics";
+};
+const normalizeFleets = (fid: string, fleets: AnyRecord[] = []) => fleets.map((fl, i) => ({
+  ...fl,
+  id: `${fid}-${i}`,
+  location: fl.front,
+  mission: fl.mission || fleetMissionFor(fid, fl),
+  fuel: fl.fuel ?? cl((fl.sup >= 999 ? 82 : fl.sup * 2) + (fl.status === "deployed" || fl.status === "blockade" ? 10 : 0)),
+  readiness: fl.readiness ?? cl(72 + (fl.status === "deployed" || fl.status === "active" || fl.status === "combat alert" ? 12 : 0) - (fl.sup < 20 ? 18 : 0) - Math.round(fleetRisk(fl.threat) / 8)),
+}));
+const fleetSummary = (fleets: AnyRecord[] = []) => {
+  const n = Math.max(1, fleets.length);
+  const avg = (k: string) => Math.round(fleets.reduce((a, f) => a + Number(f[k] || 0), 0) / n);
+  const forward = fleets.filter(f => ["deployed", "blockade", "active", "combat alert", "forward deployed", "on-station"].includes(f.status)).length;
+  const threat = Math.round(fleets.reduce((a, f) => a + fleetRisk(f.threat), 0) / n);
+  return { seaControl: cl(avg("readiness") + forward * 4 - threat / 3), readiness: avg("readiness"), supply: avg("sup"), fuel: avg("fuel"), threat };
+};
+const fleetActionEffect = (fid: string, fl: AnyRecord, action: string) => {
+  const effects: AnyRecord = {
+    Deploy: { status: "deployed", mission: "Forward presence", eta: Math.max(0, (fl.eta || 0) - 2), fuel: -8, sup: -4, readiness: -2, stats: { military: 4, credibility: 2, coalition: 1, supply: -2 }, crisis: { escalationLevel: 3, shippingInsuranceCost: 2 } },
+    Hold: { status: "standby", mission: "Hold position", fuel: 3, sup: 2, readiness: 2, stats: { domestic: 1 }, crisis: { escalationLevel: -1 } },
+    Resupply: { status: fl.status, mission: "Resupply cycle", fuel: 12, sup: 10, readiness: 4, stats: { supply: 6, chest: -4, military: 2, coalition: 1 }, crisis: { shippingInsuranceCost: 2 } },
+    Escort: { status: "deployed", mission: fid === "un" ? "Aid escort" : "Convoy escort", fuel: -5, sup: -3, readiness: 3, stats: { supply: 4, credibility: 2, coalition: 3 }, crisis: { shippingInsuranceCost: -4, escalationLevel: 2 } },
+    Shadow: { status: "covert", mission: "Shadow target", fuel: -4, sup: -2, readiness: 2, stats: { credibility: 2, military: 1 }, crisis: { cyberDisruption: 1, escalationLevel: 1 } },
+    Interdict: { status: "active", mission: fid === "un" ? "Inspection hold" : "Interdiction", fuel: -8, sup: -5, readiness: -4, stats: { military: 5, credibility: -2 }, crisis: { escalationLevel: 7, shippingInsuranceCost: 5, nuclearRisk: 2 } },
+    Retreat: { status: "standby", mission: "Withdraw/recover", eta: (fl.eta || 0) + 2, fuel: 4, sup: 3, readiness: 1, stats: { military: -3, credibility: -4 }, crisis: { escalationLevel: -4, warWeariness: -2 } },
+    "Strike Ready": { status: "combat alert", mission: "Strike ready", fuel: -6, sup: -3, readiness: 5, stats: { military: 6, resolve: 3, credibility: 2 }, crisis: { escalationLevel: 6, nuclearRisk: 4, mediaPanic: 3 } },
+  };
+  const e = effects[action] || effects.Hold;
+  if (fid === "un" && ["Interdict", "Strike Ready"].includes(action)) e.crisis = { ...e.crisis, humanitarianDamage: 3, publicTrust: -3 };
+  return e;
+};
+const applyFleetPatch = (fl: AnyRecord, e: AnyRecord) => ({
+  ...fl,
+  status: e.status || fl.status,
+  mission: e.mission || fl.mission,
+  eta: e.eta ?? fl.eta,
+  fuel: cl((fl.fuel ?? 50) + (e.fuel || 0)),
+  sup: fl.sup >= 999 ? 999 : Math.max(0, Math.round((fl.sup || 0) + (e.sup || 0))),
+  readiness: cl((fl.readiness ?? 55) + (e.readiness || 0)),
+});
+const fleetTriggeredEvent = (fid: string, fleets: AnyRecord[], used: Set<string>) => {
+  const s = fleetSummary(fleets);
+  const list = [
+    { id: "fleet_supply_crunch", when: () => s.supply < 20, t: "Fleet Supply Crunch", d: "Forward assets report that fuel and munitions are being rationed. The next operational window is narrowing.", e: { military: -6, supply: -5, credibility: -3 }, crisis: { shippingInsuranceCost: 5, escalationLevel: 2 } },
+    { id: "fleet_sea_control", when: () => s.seaControl > 76, t: fid === "un" ? "Corridor Control Improves" : "Sea Control Window", d: "Your taskforces have enough posture, fuel, and readiness to shape the maritime tempo this week.", e: { military: 5, credibility: 4, supply: 3 }, crisis: { shippingInsuranceCost: -4, allianceCohesion: 3 } },
+    { id: "fleet_fuel_warning", when: () => s.fuel < 28, t: "Fleet Fuel Warning", d: "Operations staff warn that the next action may be decided by tankers and port access rather than firepower.", e: { fuel: -5, military: -3 }, crisis: { oilShock: 4, warWeariness: 2 } },
+  ];
+  return list.find(e => !used.has(e.id) && e.when());
+};
+const fleetEndingNote = (fid: string, fleets: AnyRecord[] = []) => {
+  const s = fleetSummary(fleets);
+  if (!fleets.length) return "";
+  if (s.seaControl >= 74 && s.readiness >= 62) return fid === "un" ? "Relief and observer assets kept enough corridor control to matter." : "Fleet posture delivered meaningful sea control in the endgame.";
+  if (s.supply < 24 || s.fuel < 30) return "Logistics, fuel, and resupply limits capped the final military options.";
+  if (s.threat >= 68) return "Fleet risk stayed high enough that every final move carried escalation danger.";
+  return "Fleet logistics remained serviceable but never decisive.";
+};
 
 const FACTIONS = {
   us_dem: { id: "us_dem", flag: "🇺🇸", name: "United States", sub: "Democrat Administration", color: "#185FA5", bd: "#85B7EB", bg: "#E6F1FB", tagline: "Multilateral juggler — coalition or bust", pressure: "Progressive caucus · Allied burden disputes · UN credibility · Recession fear", traits: ["Multilateral", "Sanctions-first", "Domestic division", "Coalition"], intel: "NSC emergency session. PLAN blockaded Taiwan's eastern ports — Day 1. Progressive caucus demands UN vote before any military posture. JCS says delay = weakness. Treasury: 90-day conflict = 68% recession probability.", startStats: { stability: 68, military: 78, economy: 72, credibility: 80, global: 75, domestic: 62, coalition: 70, resolve: 65, fuel: 85, supply: 80, chest: 75, proxy: 60 }, fleets: [{ name: "USS Gerald R. Ford CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "West Pacific", threat: "High", eta: 0, sup: 28, note: "On station. Strike-ready." }, { name: "USS Ronald Reagan CSG", type: "Carrier Strike Group", u: 9, status: "deployed", front: "South China Sea", threat: "High", eta: 0, sup: 22, note: "Resupply needed Day 22." }, { name: "USS Nimitz CSG", type: "Carrier Strike Group", u: 9, status: "standby", front: "Pearl Harbor", threat: "None", eta: 7, sup: 45, note: "7-day transit to Taiwan Strait." }, { name: "USS Truman CSG", type: "Carrier Strike Group", u: 9, status: "transit", front: "Indian Ocean", threat: "Medium", eta: 12, sup: 40, note: "12 days from theater." }, { name: "SSN Wolf Pack Alpha", type: "Submarine Squadron", u: 6, status: "covert", front: "Taiwan Strait", threat: "Critical", eta: 0, sup: 60, note: "Undetected. PLAN unaware." }, { name: "Makin Island ARG", type: "Amphibious Ready Group", u: 5, status: "standby", front: "Okinawa", threat: "Low", eta: 2, sup: 35, note: "2,200 Marines aboard." }, { name: "B-52H Strategic Wing", type: "Strategic Bombers", u: 12, status: "on-station", front: "Andersen AFB Guam", threat: "High", eta: 0, sup: 30, note: "Armed. 4hr sortie to Strait." }] },
@@ -471,6 +539,7 @@ function getEnding(fid, st, context: AnyRecord = {}) {
     crisis.allianceCohesion >= 70 ? "Alliance cohesion held strongly through the final act." : "",
     crisis.publicTrust < 40 ? "Public trust was badly damaged by the endgame." : "",
     factionEndingNote(fid, st),
+    fleetEndingNote(fid, context.fleets || []),
   ].filter(Boolean).join(" ");
   return { ...base, body: notes ? `${base.body} ${notes}` : base.body, context };
 }
@@ -712,6 +781,40 @@ function FleetCard({ fl }: AnyRecord) {
 }
 
 // ─── SCREENS ─────────────────────────────────────────────────────────────────
+function FleetOpsCard({ fl, onAction }: AnyRecord) {
+  const isCrit = fl.threat === "Critical" || fl.threat === "Imminent" || fl.status === "approaching";
+  const actions = ["Deploy", "Hold", "Resupply", "Escort", "Shadow", "Interdict", "Retreat", "Strike Ready"];
+  return (
+    <div style={{ ...S.card, padding: "7px 8px", border: `0.5px solid ${isCrit ? "#F09595" : "var(--color-border-tertiary)"}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1px", gap: "6px" }}>
+        <span style={{ fontSize: "9px", fontWeight: 650, color: "var(--color-text-primary)" }}>{fl.name}</span>
+        {fl.u > 0 && <span style={{ fontSize: "8px", color: "var(--color-text-tertiary)", whiteSpace: "nowrap" }}>{fl.u > 999 ? `${Math.round(fl.u / 1000)}k` : fl.u}u</span>}
+      </div>
+      <div style={{ fontSize: "8px", color: "var(--color-text-tertiary)", marginBottom: "3px" }}>{fl.type}</div>
+      <div style={{ display: "flex", gap: "2px", flexWrap: "wrap", marginBottom: "3px" }}>
+        <span style={{ fontSize: "8px", padding: "0 4px", borderRadius: "4px", background: thrBg(fl.threat), color: stC(fl.status), border: "0.5px solid currentColor" }}>{fl.status}</span>
+        <span style={{ fontSize: "8px", padding: "0 4px", borderRadius: "4px", background: thrBg(fl.threat), color: thrC(fl.threat), border: `0.5px solid ${thrC(fl.threat)}` }}>Risk {fl.threat}</span>
+        <span style={{ fontSize: "8px", padding: "0 4px", borderRadius: "4px", background: "var(--color-background-secondary)", color: "var(--color-text-tertiary)", border: "0.5px solid var(--color-border-tertiary)" }}>{fl.location || fl.front}</span>
+      </div>
+      <div style={{ fontSize: "8px", color: "var(--color-text-secondary)", marginBottom: "3px" }}>Mission: {fl.mission}</div>
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+        <span style={{ fontSize: "8px", color: "#BA7517" }}>ETA {fl.eta || 0}d</span>
+        <span style={{ fontSize: "8px", color: supC(fl.sup), fontWeight: 600 }}>Supply {fl.sup >= 999 ? "open" : fl.sup + "d"}</span>
+        <span style={{ fontSize: "8px", color: riskC(100 - fl.fuel), fontWeight: 600 }}>Fuel {fl.fuel}%</span>
+        <span style={{ fontSize: "8px", color: vC(fl.readiness), fontWeight: 600 }}>Ready {fl.readiness}%</span>
+      </div>
+      {fl.note && <div style={{ fontSize: "8px", color: "var(--color-text-tertiary)", marginTop: "2px", fontStyle: "italic", lineHeight: 1.3 }}>{fl.note}</div>}
+      <div style={{ display: "flex", gap: "3px", flexWrap: "wrap", marginTop: "5px" }}>
+        {actions.map(a => (
+          <button key={a} onClick={() => onAction(a)} style={{ fontSize: "8px", padding: "2px 5px", borderRadius: "5px", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)", cursor: "pointer", fontFamily: "var(--font-sans)" }}>
+            {a}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FactionScreen({ onPick }: AnyRecord) {
   return (
     <div style={S.shell}>
@@ -1023,6 +1126,8 @@ export default function App() {
   const [timeline, setTimeline] = useState<any[]>([]);
   const [decisionCounts, setDecisionCounts] = useState<AnyRecord>(emptyDecisionCounts());
   const [usedFactionEvents, setUsedFactionEvents] = useState<Set<string>>(new Set());
+  const [fleetAssets, setFleetAssets] = useState<any[]>([]);
+  const [usedFleetEvents, setUsedFleetEvents] = useState<Set<string>>(new Set());
   const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
   const [lifeProfile, setLifeProfile] = useState<any>(null);
   const [lifeStats, setLifeStats] = useState<StatMap>({});
@@ -1042,6 +1147,8 @@ export default function App() {
     setOil(145); setRecession(22); setNukeAlert(1); setTaiwanFuel(61);
     setCrisis({ ...DEFAULT_CRISIS });
     setWarLog([]); setTimeline([]); setDecisionCounts(emptyDecisionCounts()); setUsedFactionEvents(new Set());
+    setFleetAssets(normalizeFleets(f, FACTIONS[f].fleets));
+    setUsedFleetEvents(new Set());
     setScreen("game");
   }, []);
 
@@ -1092,6 +1199,25 @@ export default function App() {
     setPhase("result");
   }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, recession, nukeAlert]);
 
+  const handleFleetAction = useCallback((idx: number, action: string) => {
+    const fl = fleetAssets[idx];
+    if (!fl || !fid) return;
+    const effect = fleetActionEffect(fid, fl, action);
+    const nextFleet = applyFleetPatch(fl, effect);
+    const nextFleets = fleetAssets.map((f, i) => i === idx ? nextFleet : f);
+    const nextStats = apE(stats, effect.stats || {});
+    const nextCrisis = applyCrisis(crisis, effect.crisis || {});
+    const summary = fleetSummary(nextFleets);
+    setFleetAssets(nextFleets);
+    setStats(nextStats);
+    setCrisis(nextCrisis);
+    setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
+    setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
+    setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+    setWarLog(l => [...l, `D${day} · Fleet: ${action} ordered for ${fl.name}. Mission now "${nextFleet.mission}". Sea control ${summary.seaControl}.`].slice(-16));
+    setTimeline(t => [...t, { day, act, title: "Fleet Action", body: `${action}: ${fl.name} · readiness ${nextFleet.readiness}, fuel ${nextFleet.fuel}` }].slice(-10));
+  }, [fleetAssets, fid, stats, crisis, recession, nukeAlert, day, act]);
+
   const nextTurn = useCallback(() => {
     let ns = stats;
     if (sudden) {
@@ -1102,12 +1228,17 @@ export default function App() {
       setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
       setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
     }
+    const fleetEvent = fleetTriggeredEvent(fid, fleetAssets, usedFleetEvents);
+    if (!sudden && fleetEvent) {
+      setUsedFleetEvents(u => new Set([...u, fleetEvent.id]));
+      setSudden(fleetEvent);
+    }
     const ni = qi + 1;
     if (turn >= 42 || day >= 45 || ni >= queue.length) {
-      setEnding(getEnding(fid, ns, { crisis, decisionCounts, timeline, log: warLog, strikes })); setScreen("ending"); return;
+      setEnding(getEnding(fid, ns, { crisis, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets })); setScreen("ending"); return;
     }
     setQi(ni); setPhase("choose");
-  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes]);
+  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes, fleetAssets, usedFleetEvents]);
 
   const pickLifeChoice = useCallback((choice) => {
     if (!lifeProfile || !lifeEvent) return;
@@ -1134,6 +1265,7 @@ export default function App() {
   if (!sc) return null;
 
   const nukeColors = ["#1D9E75", "#BA7517", "#BA7517", "#E24B4A", "#A32D2D"];
+  const fleetOps = fleetSummary(fleetAssets);
 
   return (
     <div style={S.root}>
@@ -1193,8 +1325,14 @@ export default function App() {
       <div style={{ padding: "9px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "rgba(255,255,255,0.5)" }}>
         <div style={{ maxWidth: "1120px", margin: "0 auto" }}>
         <div style={{ fontSize: "9px", fontWeight: 500, color: "var(--color-text-secondary)", marginBottom: "5px", textTransform: "uppercase", letterSpacing: "0.05em" }}>⚓ Fleet Status · Transit ETA · Supply Days</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: "5px", marginBottom: "6px" }}>
+          <PressureMetric id="seaControl" value={fleetOps.seaControl} meta={{ label: "Sea Control" }} />
+          <PressureMetric id="fleetReadiness" value={fleetOps.readiness} meta={{ label: "Fleet Readiness" }} />
+          <PressureMetric id="fleetSupply" value={fleetOps.supply} meta={{ label: "Supply Depth" }} />
+          <PressureMetric id="fleetThreat" value={fleetOps.threat} meta={{ label: "Fleet Threat", riskHigh: true }} />
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(270px,1fr))", gap: "5px" }}>
-          {F.fleets.map((fl, i) => <FleetCard key={i} fl={fl} />)}
+          {fleetAssets.map((fl, i) => <FleetOpsCard key={fl.id || i} fl={fl} onAction={(a) => handleFleetAction(i, a)} />)}
         </div>
         </div>
       </div>
