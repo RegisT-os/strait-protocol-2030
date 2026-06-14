@@ -1,24 +1,43 @@
 import { useState, useCallback } from "react";
-
-type StatMap = Record<string, number>;
-type AnyRecord = Record<string, any>;
-
-const cl = v => Math.max(0, Math.min(100, Math.round(v)));
-const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
-const sfl = arr => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const apE = (s, e = {}) => { const n = { ...s }; Object.entries(e).forEach(([k, v]) => { if (n[k] !== undefined) n[k] = cl(n[k] + v); }); return n; };
-
-const ACTS = { 1: "Crisis Erupts", 2: "Alliance Formation", 3: "Economic War", 4: "Military Threshold", 5: "Regional Spillover", 6: "Endgame" };
-const TCOL = { MIL: { bg: "#FCEBEB", tx: "#A32D2D", bd: "#F09595" }, DIP: { bg: "#E6F1FB", tx: "#185FA5", bd: "#85B7EB" }, ECO: { bg: "#EAF3DE", tx: "#3B6D11", bd: "#97C459" }, INT: { bg: "#EEEDFE", tx: "#3C3489", bd: "#AFA9EC" }, STR: { bg: "#FAECE7", tx: "#712B13", bd: "#F0997B" }, FIN: { bg: "#FAEEDA", tx: "#633806", bd: "#EF9F27" }, SUP: { bg: "#E1F5EE", tx: "#085041", bd: "#5DCAA5" }, PRX: { bg: "#FBEAF0", tx: "#72243E", bd: "#ED93B1" }, LOG: { bg: "#E6F1FB", tx: "#185FA5", bd: "#85B7EB" }, ECO2: { bg: "#EAF3DE", tx: "#3B6D11", bd: "#97C459" } };
-const tc = tag => TCOL[tag] || TCOL.DIP;
-const vC = v => v >= 65 ? "#1D9E75" : v >= 40 ? "#BA7517" : "#E24B4A";
-const vBg = v => v >= 65 ? "#EAF3DE" : v >= 40 ? "#FAEEDA" : "#FCEBEB";
-const riskC = v => v < 35 ? "#1D9E75" : v < 65 ? "#BA7517" : "#E24B4A";
-const riskBg = v => v < 35 ? "#EAF3DE" : v < 65 ? "#FAEEDA" : "#FCEBEB";
-const thrC = t => ({ High: "#A32D2D", Critical: "#A32D2D", Active: "#A32D2D", Imminent: "#712B13", Strategic: "#3C3489", Medium: "#854F0B", Low: "#3B6D11", None: "#888", "N/A": "#888" }[t] || "#888");
-const thrBg = t => ({ High: "#FCEBEB", Critical: "#FCEBEB", Active: "#FCEBEB", Imminent: "#FAECE7", Strategic: "#EEEDFE", Medium: "#FAEEDA", Low: "#EAF3DE", None: "#f5f5f5", "N/A": "#f5f5f5" }[t] || "#f5f5f5");
-const stC = s => ({ deployed: "#A32D2D", blockade: "#A32D2D", active: "#1D9E75", "combat alert": "#A32D2D", "on standby": "#854F0B", "forward deployed": "#A32D2D", staging: "#854F0B", transit: "#854F0B", standby: "#888", covert: "#3C3489", patrol: "#3C3489", harbor: "#1D9E75", alert: "#854F0B", approaching: "#712B13", "on-station": "#1D9E75", defensive: "#888", secured: "#3C3489", partial: "#854F0B", inactive: "#888" }[s] || "#888");
-const supC = d => d >= 999 ? "#1D9E75" : d < 15 ? "#A32D2D" : d < 30 ? "#BA7517" : "#1D9E75";
+import {
+  ACTS,
+  AnyRecord,
+  StatMap,
+  apE,
+  cl,
+  riskBg,
+  riskC,
+  rnd,
+  sfl,
+  stC,
+  supC,
+  tc,
+  thrBg,
+  thrC,
+  vBg,
+  vC,
+} from "./game/engine";
+import { LIFE_PROJECTS, WAR_OPERATIONS } from "./game/data";
+import {
+  availableOps,
+  abandonOp,
+  chooseInterstitial,
+  createInitialOpsState,
+  resolveOp,
+  startOp,
+  tickOps,
+  OpsState,
+} from "./game/operations";
+import {
+  SAVE_VERSION_WITH_OPERATIONS,
+  buildOperationsEndingPanelData,
+  buildOperationsRecordText,
+  buildIncompleteOpsText,
+  finalizeOpsForCampaignEndSave,
+  restoreOpsStateFromSave,
+  serializeOpsStateForSave,
+} from "./game/systems";
+import { getRngState, rng as opsRng, setRngState } from "./game/rng";
 
 const CRISIS_META: AnyRecord = {
   globalStability: { label: "Global Stability", goodHigh: true },
@@ -306,6 +325,57 @@ const chainEndingNote = (history: AnyRecord[] = []) => {
   if (!history.length) return "";
   const names = history.slice(-3).map(e => e.t).join(", ");
   return `Major crisis chains shaped the campaign: ${names}.`;
+};
+const OPS_RESOLVED_OUTCOMES = new Set(["success", "partial"]);
+const GRADE_VALUE: AnyRecord = { "F": 0, "D": 1, "C-": 2, "C": 3, "C+": 4, "B-": 5, "B": 6, "B+": 7, "A-": 8, "A": 9, "A+": 10 };
+const outcomeCount = (ops: OpsState | undefined, id: string, outcomes = OPS_RESOLVED_OUTCOMES) => (ops?.opsHistory || []).filter(entry => entry.id === id && outcomes.has(entry.outcome)).length;
+const hasResolvedOp = (ops: OpsState | undefined, id: string) => outcomeCount(ops, id) > 0;
+const gradeFloor = (grade: string, floor: string) => (GRADE_VALUE[grade] ?? 0) < (GRADE_VALUE[floor] ?? 0) ? floor : grade;
+const zeroOutOfSupply = (fleets: AnyRecord[] = []) => fleets.every(fleet => Number(fleet.sup ?? 1) > 0);
+const operationEndingNotes = (fid: string | null, st: StatMap, context: AnyRecord = {}) => {
+  const ops = context.warOps as OpsState | undefined;
+  if (!ops) return { title: "", gradeFloor: "", notes: [] as string[] };
+  const crisis = context.crisis || {};
+  const notes: string[] = [];
+  let title = "";
+  let floor = "";
+  if (hasResolvedOp(ops, "OP-01") && hasResolvedOp(ops, "OP-10") && Number(crisis.escalationLevel || 0) <= 42) {
+    title = "Quiet Peace";
+    floor = "A-";
+    notes.push("The backchannel and ceasefire framework held while escalation stayed low enough for a quiet peace.");
+  }
+  if (hasResolvedOp(ops, "OP-05")) notes.push("The humanitarian corridor held; relief access became part of the settlement record.");
+  if (["us_rep", "china"].includes(String(fid)) && outcomeCount(ops, "OP-03", new Set(["success"])) >= 2 && zeroOutOfSupply(context.fleets || [])) {
+    title = title || "Logistics Won This";
+    floor = gradeFloor(floor || "F", "A-");
+    notes.push("Logistics won this: repeated carrier resupply kept the fleet picture from breaking.");
+  }
+  if (outcomeCount(ops, "OP-08", new Set(["success"])) > 0 && Number(st.chest || 0) >= 30) {
+    if (!title && String(context.baseTitle || "").includes("Bankruptcy")) title = "Solvent at the Brink";
+    floor = gradeFloor(floor || "F", "B+");
+    notes.push("Emergency market stabilization kept the campaign solvent at the brink.");
+  }
+  return { title, gradeFloor: floor, notes };
+};
+const projectEndingNotes = (ops: OpsState | undefined, stats: StatMap) => {
+  const notes: string[] = [];
+  let title = "";
+  let grade = "";
+  const pj10Failures = outcomeCount(ops, "PJ-10", new Set(["failure"]));
+  if (pj10Failures >= 2) {
+    return {
+      title: "Burned",
+      grade: "F",
+      notes: ["Two risky side-hustle failures hard-unlocked the Burned ending."],
+    };
+  }
+  if (hasResolvedOp(ops, "PJ-04") && hasResolvedOp(ops, "PJ-09") && Number(stats.emergencyPreparedness || 0) >= 70 && Number(stats.familyStability || 0) >= 55) {
+    title = "Fortress Household";
+    grade = "A";
+    notes.push("Stockpiles plus backup power turned the household into a working fortress.");
+  }
+  if (hasResolvedOp(ops, "PJ-10")) notes.push("Risky side work changed the household balance sheet, but left a visible risk trail.");
+  return { title, grade, notes };
 };
 
 const FACTIONS = {
@@ -614,7 +684,16 @@ const ENDINGS = {
 
 function getEnding(fid, st, context: AnyRecord = {}) {
   const list = ENDINGS[fid] || [];
-  const base = list.find(e => e.cond(st)) || list[list.length - 1] || { grade: "B", title: "Crisis Concluded", body: "The situation resolved. History will judge the choices made." };
+  let base = list.find(e => e.cond(st)) || list[list.length - 1] || { grade: "B", title: "Crisis Concluded", body: "The situation resolved. History will judge the choices made." };
+  const opHooks = operationEndingNotes(fid, st, { ...context, baseTitle: base.title });
+  if (fid === "un" && base.title === "The Room Still Matters" && !hasResolvedOp(context.warOps, "OP-05")) {
+    base = { grade: "B+", title: "Humanitarian Framework", body: "The room stayed open, but the final settlement lacked a completed corridor. Institutions need receipts before history calls it their finest hour." };
+  }
+  if (base.title === "Bankruptcy of Power" && outcomeCount(context.warOps, "OP-08", new Set(["success"])) > 0 && Number(st.chest || 0) >= 30) {
+    base = { grade: "B+", title: "Solvent at the Brink", body: "The fiscal cliff arrived, but emergency market stabilization kept the state solvent enough to finish the crisis standing." };
+  }
+  const finalTitle = opHooks.title || base.title;
+  const finalGrade = opHooks.gradeFloor ? gradeFloor(base.grade, opHooks.gradeFloor) : base.grade;
   const counts = context.decisionCounts || {};
   const crisis = context.crisis || {};
   const topCategory = Object.entries(counts).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
@@ -628,8 +707,9 @@ function getEnding(fid, st, context: AnyRecord = {}) {
     factionEndingNote(fid, st),
     fleetEndingNote(fid, context.fleets || []),
     chainEndingNote(context.chains || []),
+    ...opHooks.notes,
   ].filter(Boolean).join(" ");
-  return { ...base, body: notes ? `${base.body} ${notes}` : base.body, context };
+  return { ...base, title: finalTitle, grade: finalGrade, body: notes ? `${base.body} ${notes}` : base.body, context };
 }
 
 function buildQ(fid) {
@@ -797,15 +877,22 @@ function lifeStrategyNote(counts: AnyRecord = {}) {
 }
 function getLifeEnding(profile, stats, context: AnyRecord = {}) {
   const why = `You ended in ${profile.spawn.name} as a ${profile.role.name}: cash ${stats.cash}, debt ${stats.debt}, stress ${stats.stress}, reputation ${stats.reputation}. ${lifeStrategyNote(context.strategyCounts)}`;
-  if (stats.debt > 105 || (stats.cash < 22 && stats.debt > 78)) return { title: "Debt Collapse", grade: "F", body: `Compounding debt outran income and emergency cash. ${why}` };
-  if (stats.cash > 118 && stats.reputation < 38) return { title: "Black Market King", grade: "B-", body: `You profited from shortages faster than trust could survive it. ${why}` };
-  if (stats.cash > 126) return { title: "Crisis Millionaire", grade: "A-", body: `You converted volatility, income, and cash discipline into a balance sheet. ${why}` };
-  if (stats.health < 34 || stats.stress > 82 || stats.morale < 30) return { title: "Burned-Out Professional", grade: "C-", body: `You kept functioning until the crisis took it out of your body and mind. ${why}` };
-  if (stats.familyStability > 84) return { title: "Family Protector", grade: "A", body: `You did not save the world. You kept your people stable, housed, and supplied. ${why}` };
-  if (profile.philosophy.id === "exit" && stats.migrationReadiness > 72 && stats.cash > 48 && stats.legalRisk < 48) return { title: "Expat Escape", grade: "B+", body: `Documents, money, and timing lined up when the exit window opened. ${why}` };
-  if (stats.reputation > 84) return { title: "Community Pillar", grade: "A", body: `Your network became infrastructure. People survived because you made trust practical. ${why}` };
-  if (stats.careerCapital > 86 && stats.jobSecurity > 62) return { title: "Career Breakthrough During Chaos", grade: "A-", body: `You became visibly useful while institutions were short on calm competence. ${why}` };
-  return { title: "Quiet Survivor", grade: "B", body: `No headlines, no fortune, no collapse. You endured the crisis one careful day at a time. ${why}` };
+  const projectHooks = projectEndingNotes(context.lifeOps, stats);
+  if (projectHooks.title === "Burned") return { title: "Burned", grade: "F", body: `The second side-hustle failure stopped being a setback and became the ending. ${why} ${projectHooks.notes.join(" ")}`, context };
+  let base;
+  if (stats.debt > 105 || (stats.cash < 22 && stats.debt > 78)) base = { title: "Debt Collapse", grade: "F", body: `Compounding debt outran income and emergency cash. ${why}` };
+  else if (stats.cash > 118 && stats.reputation < 38) base = { title: "Black Market King", grade: "B-", body: `You profited from shortages faster than trust could survive it. ${why}` };
+  else if (stats.cash > 126) base = { title: "Crisis Millionaire", grade: "A-", body: `You converted volatility, income, and cash discipline into a balance sheet. ${why}` };
+  else if (stats.health < 34 || stats.stress > 82 || stats.morale < 30) base = { title: "Burned-Out Professional", grade: "C-", body: `You kept functioning until the crisis took it out of your body and mind. ${why}` };
+  else if (stats.familyStability > 84) base = { title: "Family Protector", grade: "A", body: `You did not save the world. You kept your people stable, housed, and supplied. ${why}` };
+  else if (profile.philosophy.id === "exit" && stats.migrationReadiness > 72 && stats.cash > 48 && stats.legalRisk < 48) base = { title: "Expat Escape", grade: "B+", body: `Documents, money, and timing lined up when the exit window opened. ${why}` };
+  else if (stats.reputation > 84) base = { title: "Community Pillar", grade: "A", body: `Your network became infrastructure. People survived because you made trust practical. ${why}` };
+  else if (stats.careerCapital > 86 && stats.jobSecurity > 62) base = { title: "Career Breakthrough During Chaos", grade: "A-", body: `You became visibly useful while institutions were short on calm competence. ${why}` };
+  else base = { title: "Quiet Survivor", grade: "B", body: `No headlines, no fortune, no collapse. You endured the crisis one careful day at a time. ${why}` };
+  const title = projectHooks.title || base.title;
+  const grade = projectHooks.grade ? gradeFloor(base.grade, projectHooks.grade) : base.grade;
+  const notes = projectHooks.notes.length ? ` ${projectHooks.notes.join(" ")}` : "";
+  return { ...base, title, grade, body: `${base.body}${notes}`, context };
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
@@ -828,6 +915,60 @@ const storageRemove = (k: string) => { if (typeof localStorage !== "undefined") 
 const saveSet = (s?: Set<string>) => Array.from(s || []);
 const restoreSet = (a?: string[]) => new Set(a || []);
 const fmtEntries = (obj: AnyRecord = {}, limit = 8) => Object.entries(obj).slice(0, limit).map(([k, v]) => `${k}: ${v}`).join(", ");
+const opsRecordText = (ops: OpsState | undefined, title = "OPERATIONS RECORD") => {
+  if (!ops) return `${title}\nNo operations or projects recorded.`;
+  const record = buildOperationsRecordText(ops).replace("OPERATIONS RECORD", title);
+  const incomplete = buildIncompleteOpsText(ops);
+  return incomplete.includes("No incomplete operations or projects.")
+    ? record
+    : `${record}\n\n${incomplete.replace("INCOMPLETE AT END", `${title.replace(" RECORD", "")} INCOMPLETE AT END`)}`;
+};
+const warOpsContext = (ops: OpsState, ctx: AnyRecord): OpsState => ({
+  ...ops,
+  mode: "war",
+  day: ctx.day ?? ops.day,
+  act: ctx.act ?? ops.act,
+  campaignLength: 45,
+  factionId: ctx.fid ?? ops.factionId,
+  stats: { ...(ctx.stats || ops.stats || {}) },
+  crisis: { ...(ctx.crisis || ops.crisis || {}) },
+  markets: {},
+  fleets: (ctx.fleets || ops.fleets || []).map((f: AnyRecord, i: number) => ({ ...f, id: f.id || `${ctx.fid || ops.factionId || "fleet"}-${i}`, hostile: !!f.hostile || String(f.name || "").includes("HOSTILE") })),
+  chainTags: (ctx.chainHistory || []).map((c: AnyRecord) => c.tag).filter(Boolean),
+});
+const lifeEventTags = (event?: AnyRecord) => {
+  const text = `${event?.local?.t || ""} ${event?.local?.d || ""}`.toLowerCase();
+  return [
+    text.includes("cyber") ? "cyber" : "",
+    text.includes("blackout") || text.includes("power") ? "blackout" : "",
+    text.includes("bank") || text.includes("cash") ? "banking" : "",
+    text.includes("food") || text.includes("shortage") ? "shortage" : "",
+  ].filter(Boolean);
+};
+const cityEventTags = (event?: AnyRecord) => {
+  const text = `${event?.local?.t || ""} ${event?.local?.d || ""}`.toLowerCase();
+  return [
+    text.includes("protest") ? "protest" : "",
+    text.includes("ration") ? "rationing" : "",
+    text.includes("community") || text.includes("neighbor") ? "community" : "",
+  ].filter(Boolean);
+};
+const lifeOpsContext = (ops: OpsState, ctx: AnyRecord): OpsState => ({
+  ...ops,
+  mode: "life",
+  day: ctx.day ?? ops.day,
+  campaignLength: ctx.profile?.length ?? ctx.length ?? ops.campaignLength,
+  roleId: ctx.profile?.role?.id ?? ctx.roleId ?? ops.roleId,
+  cityId: ctx.profile?.spawn?.id ?? ctx.cityId ?? ops.cityId,
+  philosophyId: ctx.profile?.philosophy?.id ?? ctx.philosophyId ?? ops.philosophyId,
+  stats: { ...(ctx.stats || ops.stats || {}) },
+  crisis: { ...(ctx.crisis || ops.crisis || {}) },
+  markets: { ...(ctx.markets || ops.markets || {}) },
+  lifeEventTags: ctx.event ? lifeEventTags(ctx.event) : (ctx.lifeEventTags || ops.lifeEventTags || []),
+  cityEventTags: ctx.event ? cityEventTags(ctx.event) : (ctx.cityEventTags || ops.cityEventTags || []),
+});
+const readyOps = (ops: OpsState) => ops.activeOps.filter(o => o.status === "ready" || o.progress >= o.duration).slice().sort((a, b) => a.startedDay - b.startedDay || a.slotIndex - b.slotIndex);
+const opTitle = (id: string) => [...WAR_OPERATIONS, ...LIFE_PROJECTS].find(op => op.id === id)?.title || id;
 const downloadText = (name: string, text: string) => {
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -850,6 +991,7 @@ const warSummaryText = (state: AnyRecord) => {
     `Decision mix: ${fmtEntries(state.decisionCounts, 10) || "none"}`,
     `Fleet outcomes: sea control ${fleet.seaControl}, readiness ${fleet.readiness}, supply ${fleet.supply}, fuel ${fleet.fuel}, threat ${fleet.threat}`,
     `Fleet command points remaining: ${state.fleetCommandPoints}/${FLEET_COMMAND_POINTS_PER_DAY}`,
+    opsRecordText(state.warOps, "OPERATIONS RECORD"),
     "Major crisis chains:",
     chains,
     "Recent turning points:",
@@ -868,6 +1010,7 @@ const lifeSummaryText = (state: AnyRecord) => {
     `Personal stats: ${fmtEntries(state.lifeStats, 18)}`,
     `Markets: ${fmtEntries(state.lifeMarkets, 8)}`,
     `Recovery strategy mix: ${fmtEntries(state.lifeStrategyCounts, 8) || "none"}`,
+    opsRecordText(state.lifeOps, "PROJECTS RECORD"),
     "Recent life log:",
     log,
   ].join("\n");
@@ -1012,6 +1155,102 @@ function WarRoomSidePanel({ log, timeline }: AnyRecord) {
   );
 }
 
+function WarOperationsPanel({ ops, onStart, onAbandon }: AnyRecord) {
+  const available = availableOps("war", ops);
+  const active = ops.activeOps || [];
+  const history = ops.opsHistory || [];
+  return (
+    <div style={{ ...S.panel, padding: "11px", display: "grid", gap: "8px" }}>
+      <div>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "3px" }}>Operations</div>
+        <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.45 }}>{active.length} active · {history.length} recorded</div>
+      </div>
+      <div style={{ display: "grid", gap: "5px" }}>
+        {active.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.45 }}>No active operations.</div> : active.map(op => {
+          const def = WAR_OPERATIONS.find(d => d.id === op.id);
+          return (
+            <div key={op.instanceId} style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "7px", background: "var(--color-background-secondary)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: "10px", fontWeight: 800, color: "var(--color-text-primary)" }}>{def?.title || op.id}</div>
+                  <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>{op.status} · {op.progress}/{op.duration} days · risk {def?.risk || "n/a"}</div>
+                </div>
+                <button onClick={() => onAbandon(op.instanceId)} style={{ fontSize: "8px", padding: "3px 6px", borderRadius: "var(--border-radius-md)", border: "0.5px solid #F09595", background: "#FCEBEB", color: "#A32D2D", cursor: "pointer", fontWeight: 800 }}>Abandon</button>
+              </div>
+              <div style={{ height: "3px", borderRadius: "2px", background: "var(--color-background-primary)", marginTop: "6px", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(100, Math.round((op.progress / Math.max(1, op.duration)) * 100))}%`, background: op.status === "ready" ? "#1D9E75" : op.status === "suspended" ? "#BA7517" : "#185FA5" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "7px", display: "grid", gap: "5px" }}>
+        {available.slice(0, 10).map(({ op, available: canStart, reasons }) => (
+          <button key={op.id} onClick={() => canStart && onStart(op.id)} disabled={!canStart}
+            title={reasons.join(" ")}
+            style={{ textAlign: "left", padding: "7px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)", background: canStart ? "var(--color-background-primary)" : "var(--color-background-secondary)", color: canStart ? "var(--color-text-primary)" : "var(--color-text-tertiary)", cursor: canStart ? "pointer" : "not-allowed", fontFamily: "var(--font-sans)" }}>
+            <div style={{ fontSize: "10px", fontWeight: 800 }}>{canStart ? "+ " : ""}{op.title}</div>
+            <div style={{ fontSize: "8px", lineHeight: 1.35 }}>{canStart ? `${op.durationDays} days · risk ${op.risk}` : reasons[0]}</div>
+          </button>
+        ))}
+      </div>
+      {history.length > 0 && (
+        <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "7px", display: "grid", gap: "3px" }}>
+          {history.slice(-3).reverse().map((h, i) => <div key={`${h.instanceId || h.id}-${i}`} style={{ fontSize: "9px", color: "var(--color-text-secondary)", lineHeight: 1.35 }}>D{h.day} · {h.title} — {h.outcome}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LifeProjectsPanel({ ops, onStart, onAbandon }: AnyRecord) {
+  const available = availableOps("life", ops);
+  const active = ops.activeOps || [];
+  const history = ops.opsHistory || [];
+  return (
+    <div style={{ ...S.panel, padding: "11px", display: "grid", gap: "8px" }}>
+      <div>
+        <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "3px" }}>Projects</div>
+        <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.45 }}>{active.length} active · {history.length} recorded</div>
+      </div>
+      <div style={{ display: "grid", gap: "5px" }}>
+        {active.length === 0 ? <div style={{ fontSize: "10px", color: "var(--color-text-tertiary)", lineHeight: 1.45 }}>No active projects.</div> : active.map(op => {
+          const def = LIFE_PROJECTS.find(d => d.id === op.id);
+          return (
+            <div key={op.instanceId} style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "7px", background: "var(--color-background-secondary)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: "10px", fontWeight: 800, color: "var(--color-text-primary)" }}>{def?.title || op.id}</div>
+                  <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>{op.status} · {op.progress}/{op.duration} days · risk {def?.risk || "n/a"}</div>
+                </div>
+                <button onClick={() => onAbandon(op.instanceId)} style={{ fontSize: "8px", padding: "3px 6px", borderRadius: "var(--border-radius-md)", border: "0.5px solid #F09595", background: "#FCEBEB", color: "#A32D2D", cursor: "pointer", fontWeight: 800 }}>Abandon</button>
+              </div>
+              <div style={{ height: "3px", borderRadius: "2px", background: "var(--color-background-primary)", marginTop: "6px", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min(100, Math.round((op.progress / Math.max(1, op.duration)) * 100))}%`, background: op.status === "ready" ? "#1D9E75" : op.status === "suspended" ? "#BA7517" : "#EF9F27" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "7px", display: "grid", gap: "5px" }}>
+        {available.slice(0, 10).map(({ op, available: canStart, reasons }) => (
+          <button key={op.id} onClick={() => canStart && onStart(op.id)} disabled={!canStart}
+            title={reasons.join(" ")}
+            style={{ textAlign: "left", padding: "7px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)", background: canStart ? "var(--color-background-primary)" : "var(--color-background-secondary)", color: canStart ? "var(--color-text-primary)" : "var(--color-text-tertiary)", cursor: canStart ? "pointer" : "not-allowed", fontFamily: "var(--font-sans)" }}>
+            <div style={{ fontSize: "10px", fontWeight: 800 }}>{canStart ? "+ " : ""}{op.title}</div>
+            <div style={{ fontSize: "8px", lineHeight: 1.35 }}>{canStart ? `${op.durationDays} days · risk ${op.risk}` : reasons[0]}</div>
+          </button>
+        ))}
+      </div>
+      {history.length > 0 && (
+        <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "7px", display: "grid", gap: "3px" }}>
+          {history.slice(-3).reverse().map((h, i) => <div key={`${h.instanceId || h.id}-${i}`} style={{ fontSize: "9px", color: "var(--color-text-secondary)", lineHeight: 1.35 }}>D{h.day} · {h.title} — {h.outcome}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CampaignControls({ mode, canLoad, message, onSave, onLoad, onClear, onExport, onRestart }: AnyRecord) {
   const btn = (label, fn, disabled = false, tone = "plain") => (
     <button onClick={fn} disabled={disabled} style={{ fontSize: "9px", padding: "5px 8px", borderRadius: "var(--border-radius-md)", border: `0.5px solid ${tone === "danger" ? "#F09595" : tone === "good" ? "#97C459" : "var(--color-border-tertiary)"}`, background: disabled ? "var(--color-background-secondary)" : tone === "danger" ? "#FCEBEB" : tone === "good" ? "#EAF3DE" : "var(--color-background-primary)", color: disabled ? "var(--color-text-tertiary)" : tone === "danger" ? "#A32D2D" : tone === "good" ? "#3B6D11" : "var(--color-text-secondary)", cursor: disabled ? "not-allowed" : "pointer", fontWeight: 700, fontFamily: "var(--font-sans)" }}>{label}</button>
@@ -1028,6 +1267,28 @@ function CampaignControls({ mode, canLoad, message, onSave, onLoad, onClear, onE
           {btn("Restart", onRestart, false, "danger")}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EndingOpsRecordPanel({ ops, title = "Operations Record" }: AnyRecord) {
+  if (!ops) return null;
+  const data = buildOperationsEndingPanelData(ops);
+  const lines = data.recordLines.length ? data.recordLines.slice(-5).reverse() : ["No operations or projects recorded."];
+  return (
+    <div style={{ ...S.card, padding: "10px", textAlign: "left" }}>
+      <div style={{ fontSize: "9px", color: "var(--color-text-secondary)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>{title}</div>
+      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "6px" }}>
+        {Object.entries(data.counts).filter(([, v]) => Number(v) > 0).map(([k, v]) => (
+          <span key={k} style={{ fontSize: "8px", padding: "2px 6px", borderRadius: "999px", background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", color: "var(--color-text-secondary)" }}>{k}: {v as number}</span>
+        ))}
+      </div>
+      {lines.map((line, i) => <div key={i} style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.45, borderTop: "0.5px solid var(--color-border-tertiary)", padding: "4px 0" }}>{line}</div>)}
+      {(data.incompleteLines.length > 0 || data.activeLines.length > 0) && (
+        <div style={{ fontSize: "9px", color: "#854F0B", lineHeight: 1.45, borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: "5px" }}>
+          {[...data.incompleteLines, ...data.activeLines].join(" ")}
+        </div>
+      )}
     </div>
   );
 }
@@ -1245,9 +1506,11 @@ function LifeMetric({ label, value, limit = 100 }: AnyRecord) {
   );
 }
 
-function LifeGameScreen({ profile, day, stats, markets, event, log, controls, onChoice, onBack }: AnyRecord) {
+function LifeGameScreen({ profile, day, stats, markets, event, log, controls, projects, onChoice, onBack, onStartProject, onAbandonProject, onResolveProject }: AnyRecord) {
   const progress = Math.round((day / profile.length) * 100);
   const lifePreview = (c) => Object.entries(c.e || {}).slice(0, 4).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
+  const resolvingProject = projects ? readyOps(projects)[0] : null;
+  const resolvingProjectDef = resolvingProject ? LIFE_PROJECTS.find(p => p.id === resolvingProject.id) : null;
   return (
     <div style={S.root}>
       {controls}
@@ -1275,6 +1538,7 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, controls, on
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(118px,1fr))", gap: "5px" }}>
               {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
             </div>
+            {projects && <div style={{ marginTop: "10px" }}><LifeProjectsPanel ops={projects} onStart={onStartProject} onAbandon={onAbandonProject} /></div>}
           </div>
           <div style={{ ...S.panel, padding: "10px" }}>
             <div style={{ fontSize: "9px", fontWeight: 800, color: "var(--color-text-secondary)", marginBottom: "7px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Market Ticker</div>
@@ -1286,26 +1550,37 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, controls, on
       </div>
       <div style={{ ...S.shell, paddingTop: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "10px" }}>
         <div>
-          <div style={{ ...S.panel, padding: "14px", marginBottom: "8px" }}>
-            <div style={{ fontSize: "9px", color: "#185FA5", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Local Crisis Event</div>
-            <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px" }}>{event.local.t}</div>
-            <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "10px" }}>{event.local.d}</div>
-            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "8px" }}>
-              {Object.entries(event.crisis || {}).slice(0, 4).map(([k, v]) => <span key={k} style={{ fontSize: "8px", padding: "2px 6px", borderRadius: "999px", background: riskBg(Number(v)), color: riskC(Number(v)), border: "0.5px solid currentColor" }}>{lifeLabel(k)} {v}</span>)}
+          {resolvingProject ? (
+            <div style={{ ...S.panel, padding: "14px", marginBottom: "8px", borderTop: "3px solid #1D9E75" }}>
+              <div style={{ fontSize: "9px", color: "#1D9E75", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Project Ready</div>
+              <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px" }}>{resolvingProjectDef?.title || resolvingProject.id}</div>
+              <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "10px" }}>The project has completed its work window. Resolve it before making the next daily choice.</div>
+              <button onClick={() => onResolveProject(resolvingProject.instanceId)} style={{ width: "100%", padding: "10px", border: "1px solid #97C459", borderRadius: "var(--border-radius-md)", background: "#EAF3DE", color: "#3B6D11", cursor: "pointer", fontWeight: 800, fontFamily: "var(--font-sans)" }}>Resolve Project</button>
             </div>
-            <div style={{ fontSize: "11px", color: "#854F0B", lineHeight: 1.6, background: "#fff7e8", border: "0.5px solid #EF9F27", borderRadius: "var(--border-radius-md)", padding: "8px 10px" }}><b>{event.role.t}:</b> {event.role.d}</div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {event.choices.map((c, i) => (
-              <button key={i} onClick={() => onChoice(c)} style={{ ...S.card, textAlign: "left", padding: "11px 12px", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", cursor: "pointer", fontSize: "11px", lineHeight: 1.45, fontFamily: "var(--font-sans)" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "#EF9F27"; e.currentTarget.style.background = "#fffaf2"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.background = "var(--color-background-primary)"; }}
-              >
-                <Tag tag={c.tag} /><span style={{ marginLeft: "8px" }}>{c.l}</span>
-                <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", marginTop: "4px" }}>{lifePreview(c)}</div>
-              </button>
-            ))}
-          </div>
+          ) : (
+            <>
+              <div style={{ ...S.panel, padding: "14px", marginBottom: "8px" }}>
+                <div style={{ fontSize: "9px", color: "#185FA5", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Local Crisis Event</div>
+                <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px" }}>{event.local.t}</div>
+                <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: "10px" }}>{event.local.d}</div>
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "8px" }}>
+                  {Object.entries(event.crisis || {}).slice(0, 4).map(([k, v]) => <span key={k} style={{ fontSize: "8px", padding: "2px 6px", borderRadius: "999px", background: riskBg(Number(v)), color: riskC(Number(v)), border: "0.5px solid currentColor" }}>{lifeLabel(k)} {v}</span>)}
+                </div>
+                <div style={{ fontSize: "11px", color: "#854F0B", lineHeight: 1.6, background: "#fff7e8", border: "0.5px solid #EF9F27", borderRadius: "var(--border-radius-md)", padding: "8px 10px" }}><b>{event.role.t}:</b> {event.role.d}</div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {event.choices.map((c, i) => (
+                  <button key={i} onClick={() => onChoice(c)} style={{ ...S.card, textAlign: "left", padding: "11px 12px", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", cursor: "pointer", fontSize: "11px", lineHeight: 1.45, fontFamily: "var(--font-sans)" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#EF9F27"; e.currentTarget.style.background = "#fffaf2"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.background = "var(--color-background-primary)"; }}
+                  >
+                    <Tag tag={c.tag} /><span style={{ marginLeft: "8px" }}>{c.l}</span>
+                    <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", marginTop: "4px" }}>{lifePreview(c)}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <button onClick={onBack} style={{ marginTop: "10px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-secondary)", padding: "8px 11px", cursor: "pointer", fontSize: "10px", fontWeight: 650 }}>End Run and Return to Menu</button>
         </div>
         <div style={{ ...S.panel, padding: "11px", maxHeight: "420px", overflow: "auto" }}>
@@ -1317,7 +1592,7 @@ function LifeGameScreen({ profile, day, stats, markets, event, log, controls, on
   );
 }
 
-function LifeEndingScreen({ ending, profile, stats, controls, onRestart, onMenu }: AnyRecord) {
+function LifeEndingScreen({ ending, profile, stats, controls, ops, onRestart, onMenu }: AnyRecord) {
   return (
     <div style={{ ...S.root, padding: "22px 14px", textAlign: "center" }}>
       {controls}
@@ -1335,6 +1610,9 @@ function LifeEndingScreen({ ending, profile, stats, controls, onRestart, onMenu 
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "4px", maxWidth: "520px", margin: "0 auto 16px" }}>
         {Object.entries(stats as StatMap).map(([k, v]) => <LifeMetric key={k} label={k} value={v} limit={lifeStatMax(k)} />)}
+      </div>
+      <div style={{ maxWidth: "620px", margin: "0 auto 16px" }}>
+        <EndingOpsRecordPanel ops={ops} title="Projects Record" />
       </div>
       <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap" }}>
         <button onClick={onRestart} style={{ padding: "9px 16px", border: "1px solid #EF9F27", borderRadius: "var(--border-radius-md)", background: "#FAEEDA", color: "#854F0B", cursor: "pointer", fontWeight: 600 }}>New Life Run</button>
@@ -1412,6 +1690,9 @@ function EndingScreen({ F, ending, stats, controls, onRestart }: AnyRecord) {
           <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", lineHeight: 1.55 }}>Sea control {fleet.seaControl}. Readiness {fleet.readiness}. Supply {fleet.supply}. Fuel {fleet.fuel}. Threat {fleet.threat}.</div>
         </div>
       </div>
+      <div style={{ maxWidth: "620px", margin: "0 auto 16px" }}>
+        <EndingOpsRecordPanel ops={ctx.warOps} title="Operations Record" />
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "4px", maxWidth: "460px", margin: "0 auto 18px" }}>
         {Object.entries(stats as StatMap).map(([k, v]) => (
           <div key={k} style={{ background: "var(--color-background-secondary)", borderRadius: "6px", padding: "4px 4px", textAlign: "center", border: `0.5px solid ${vBg(v)}` }}>
@@ -1459,6 +1740,7 @@ export default function App() {
   const [fleetOrdersToday, setFleetOrdersToday] = useState<AnyRecord>({});
   const [usedChainEvents, setUsedChainEvents] = useState<Set<string>>(new Set());
   const [chainHistory, setChainHistory] = useState<any[]>([]);
+  const [warOps, setWarOps] = useState<OpsState>(() => createInitialOpsState("war"));
   const [lifeDraft, setLifeDraft] = useState<any>({ spawn: "singapore", role: "nurse", philosophy: "protector", length: 30 });
   const [lifeProfile, setLifeProfile] = useState<any>(null);
   const [lifeStats, setLifeStats] = useState<StatMap>({});
@@ -1468,6 +1750,7 @@ export default function App() {
   const [lifeLog, setLifeLog] = useState<string[]>([]);
   const [lifeStrategyCounts, setLifeStrategyCounts] = useState<AnyRecord>({});
   const [lifeEnding, setLifeEnding] = useState<any>(null);
+  const [lifeOps, setLifeOps] = useState<OpsState>(() => createInitialOpsState("life"));
   const [saveAvailable, setSaveAvailable] = useState(() => !!storageGet(SAVE_KEY));
   const [saveMessage, setSaveMessage] = useState("");
 
@@ -1475,62 +1758,75 @@ export default function App() {
 
   const startGame = useCallback((f) => {
     const q = buildQ(f);
-    setFid(f); setStats(factionInitialStats(f, { ...FACTIONS[f].startStats })); setQueue(q); setQi(0);
+    const initialStats = factionInitialStats(f, { ...FACTIONS[f].startStats });
+    const initialFleets = normalizeFleets(f, FACTIONS[f].fleets);
+    setFid(f); setStats(initialStats); setQueue(q); setQi(0);
     setDay(1); setAct(1); setTurn(0); setPhase("choose"); setChosen(null); setSudden(null);
     setUsedSudden(new Set()); setStrikes(0); setEnding(null);
     setOil(145); setRecession(22); setNukeAlert(1); setTaiwanFuel(61);
     setCrisis({ ...DEFAULT_CRISIS });
     setWarLog([]); setTimeline([]); setDecisionCounts(emptyDecisionCounts()); setUsedFactionEvents(new Set());
-    setFleetAssets(normalizeFleets(f, FACTIONS[f].fleets));
+    setFleetAssets(initialFleets);
     setUsedFleetEvents(new Set());
     setFleetCommandPoints(FLEET_COMMAND_POINTS_PER_DAY);
     setFleetOrdersToday({});
     setUsedChainEvents(new Set());
     setChainHistory([]);
+    setWarOps(warOpsContext(createInitialOpsState("war"), { day: 1, act: 1, fid: f, stats: initialStats, crisis: { ...DEFAULT_CRISIS }, fleets: initialFleets, chainHistory: [] }));
     setScreen("game");
   }, []);
 
   const startLife = useCallback(() => {
     const profile = buildLifeProfile(lifeDraft);
+    const firstEvent = buildLifeEvent(1, profile);
     setLifeProfile(profile);
     setLifeStats(profile.stats);
     setLifeMarkets(profile.markets);
     setLifeDay(1);
-    setLifeEvent(buildLifeEvent(1, profile));
+    setLifeEvent(firstEvent);
     setLifeLog([]);
     setLifeStrategyCounts({});
     setLifeEnding(null);
+    setLifeOps(lifeOpsContext(createInitialOpsState("life"), { day: 1, profile, stats: profile.stats, markets: profile.markets, event: firstEvent }));
     setScreen("lifeGame");
   }, [lifeDraft]);
 
   const saveCampaign = useCallback(() => {
     const isLife = screen === "lifeGame" || screen === "lifeEnding" || screen === "lifeSetup";
     const isWar = screen === "game" || screen === "ending";
+    const syncedWarOps = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+    const syncedLifeOps = lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent });
     const payload = {
-      version: 2,
+      version: isWar || isLife ? SAVE_VERSION_WITH_OPERATIONS : 2,
       mode: isLife ? "life" : isWar ? "war" : "menu",
       savedAt: new Date().toISOString(),
       screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden: saveSet(usedSudden), strikes, ending,
       oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents: saveSet(usedFactionEvents),
       fleetAssets, usedFleetEvents: saveSet(usedFleetEvents), fleetCommandPoints, fleetOrdersToday, usedChainEvents: saveSet(usedChainEvents), chainHistory,
+      warOps: isWar ? serializeOpsStateForSave(syncedWarOps) : undefined,
+      lifeOps: isLife ? serializeOpsStateForSave(syncedLifeOps) : undefined,
+      opsRngState: isWar || isLife ? getRngState() : undefined,
       lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding,
     };
     storageSet(SAVE_KEY, JSON.stringify(payload));
     setSaveAvailable(true); setSaveMessage(`Saved ${payload.mode} campaign.`);
-  }, [screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
+  }, [screen, fid, stats, queue, qi, day, act, turn, phase, chosen, sudden, usedSudden, strikes, ending, oil, recession, nukeAlert, taiwanFuel, crisis, warLog, timeline, decisionCounts, usedFactionEvents, fleetAssets, usedFleetEvents, fleetCommandPoints, fleetOrdersToday, usedChainEvents, chainHistory, warOps, lifeOps, lifeDraft, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts, lifeEnding]);
 
   const loadCampaign = useCallback(() => {
     const raw = storageGet(SAVE_KEY);
     if (!raw) { setSaveMessage("No saved campaign found."); setSaveAvailable(false); return; }
     try {
       const p = JSON.parse(raw);
+      if (Number.isFinite(Number(p.opsRngState))) setRngState(Number(p.opsRngState));
       setFid(p.fid || null); setStats(p.stats || {}); setQueue(p.queue || []); setQi(p.qi || 0); setDay(p.day || 1); setAct(p.act || 1); setTurn(p.turn || 0); setPhase(p.phase || "choose"); setChosen(p.chosen || null); setSudden(p.sudden || null);
       setUsedSudden(restoreSet(p.usedSudden)); setStrikes(p.strikes || 0); setEnding(p.ending || null);
       setOil(p.oil || 145); setRecession(p.recession || 22); setNukeAlert(p.nukeAlert || 1); setTaiwanFuel(p.taiwanFuel || 61); setCrisis(p.crisis || { ...DEFAULT_CRISIS });
       setWarLog(p.warLog || []); setTimeline(p.timeline || []); setDecisionCounts(p.decisionCounts || emptyDecisionCounts()); setUsedFactionEvents(restoreSet(p.usedFactionEvents));
       setFleetAssets(p.fleetAssets || []); setUsedFleetEvents(restoreSet(p.usedFleetEvents)); setFleetCommandPoints(p.fleetCommandPoints ?? FLEET_COMMAND_POINTS_PER_DAY); setFleetOrdersToday(p.fleetOrdersToday || {});
       setUsedChainEvents(restoreSet(p.usedChainEvents)); setChainHistory(p.chainHistory || []);
+      setWarOps(restoreOpsStateFromSave({ ...(p.warOps || {}), day: p.day || 1, act: p.act || 1, factionId: p.fid || null, stats: p.stats || {}, crisis: p.crisis || { ...DEFAULT_CRISIS }, fleets: p.fleetAssets || [], chainHistory: p.chainHistory || [] }, "war"));
       setLifeDraft(p.lifeDraft || lifeDraft); setLifeProfile(p.lifeProfile || null); setLifeStats(p.lifeStats || {}); setLifeMarkets(p.lifeMarkets || {}); setLifeDay(p.lifeDay || 1); setLifeEvent(p.lifeEvent || null); setLifeLog(p.lifeLog || []); setLifeStrategyCounts(p.lifeStrategyCounts || {}); setLifeEnding(p.lifeEnding || null);
+      setLifeOps(restoreOpsStateFromSave({ ...(p.lifeOps || {}), day: p.lifeDay || 1, campaignLength: p.lifeProfile?.length || p.lifeDraft?.length || 30, roleId: p.lifeProfile?.role?.id || null, cityId: p.lifeProfile?.spawn?.id || null, philosophyId: p.lifeProfile?.philosophy?.id || null, stats: p.lifeStats || {}, markets: p.lifeMarkets || {}, lifeEventTags: lifeEventTags(p.lifeEvent), cityEventTags: cityEventTags(p.lifeEvent) }, "life"));
       setScreen(p.screen === "lifeSetup" ? "lifeSetup" : p.mode === "life" ? (p.screen === "lifeEnding" ? "lifeEnding" : "lifeGame") : p.screen === "ending" ? "ending" : "game");
       setSaveAvailable(true); setSaveMessage(`Loaded ${p.mode || "saved"} campaign.`);
     } catch {
@@ -1545,26 +1841,110 @@ export default function App() {
 
   const exportSummary = useCallback(() => {
     const isLife = screen === "lifeGame" || screen === "lifeEnding";
-    const state = { screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts };
+    const state = { screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, warOps: warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory }), lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts, lifeOps: lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent }) };
     downloadText(`strait-protocol-${isLife ? "life" : "war"}-summary.txt`, isLife ? lifeSummaryText(state) : warSummaryText(state));
     setSaveMessage("Campaign summary exported.");
-  }, [screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
+  }, [screen, fid, stats, crisis, day, act, turn, phase, decisionCounts, fleetAssets, fleetCommandPoints, chainHistory, timeline, warLog, warOps, lifeOps, lifeProfile, lifeStats, lifeMarkets, lifeDay, lifeEvent, lifeLog, lifeStrategyCounts]);
 
   const restartActive = useCallback(() => {
     if ((screen === "game" || screen === "ending") && fid) { startGame(fid); setSaveMessage("War Room campaign restarted."); return; }
     if ((screen === "lifeGame" || screen === "lifeEnding") && lifeProfile) {
-      setLifeStats(lifeProfile.stats); setLifeMarkets(lifeProfile.markets); setLifeDay(1); setLifeEvent(buildLifeEvent(1, lifeProfile, lifeProfile.stats)); setLifeLog([]); setLifeStrategyCounts({}); setLifeEnding(null); setScreen("lifeGame"); setSaveMessage("Life campaign restarted.");
+      const firstEvent = buildLifeEvent(1, lifeProfile, lifeProfile.stats);
+      setLifeStats(lifeProfile.stats); setLifeMarkets(lifeProfile.markets); setLifeDay(1); setLifeEvent(firstEvent); setLifeLog([]); setLifeStrategyCounts({}); setLifeEnding(null); setLifeOps(lifeOpsContext(createInitialOpsState("life"), { day: 1, profile: lifeProfile, stats: lifeProfile.stats, markets: lifeProfile.markets, event: firstEvent })); setScreen("lifeGame"); setSaveMessage("Life campaign restarted.");
     }
   }, [screen, fid, startGame, lifeProfile]);
 
+  const handleStartWarOp = useCallback((opId: string) => {
+    const synced = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+    const targetId = opId === "OP-03" ? synced.fleets?.find(f => !f.hostile && f.sup < 20)?.id : undefined;
+    const result = startOp(synced, opId, { targetId });
+    if (!result.ok) { setSaveMessage(result.reasons[0] || "Operation could not start."); return; }
+    setWarOps(result.state);
+    setStats(result.state.stats);
+    setCrisis(result.state.crisis);
+    setWarLog(l => [...l, `D${day} · Operation started: ${opTitle(opId)}.`].slice(-16));
+    setSaveMessage(`Started ${opTitle(opId)}.`);
+  }, [warOps, day, act, fid, stats, crisis, fleetAssets, chainHistory]);
+
+  const handleAbandonWarOp = useCallback((activeOpId: string) => {
+    const synced = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+    const before = synced.activeOps.length;
+    const next = abandonOp(synced, activeOpId);
+    setWarOps(next);
+    if (next.activeOps.length < before) {
+      setWarLog(l => [...l, `D${day} · Operation abandoned.`].slice(-16));
+      setSaveMessage("Operation abandoned.");
+    }
+  }, [warOps, day, act, fid, stats, crisis, fleetAssets, chainHistory]);
+
+  const handleResolveWarOp = useCallback(() => {
+    const synced = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+    const nextReady = readyOps(synced)[0];
+    if (!nextReady) { setPhase("choose"); return; }
+    const result = resolveOp(synced, nextReady.instanceId, opsRng);
+    if (!result.ok || !result.entry) { setSaveMessage(result.reason || "Operation could not resolve."); return; }
+    setWarOps(result.state);
+    setStats(result.state.stats);
+    setCrisis(result.state.crisis);
+    setOil(Math.round(92 + (result.state.crisis.oilShock || 0) * 1.35));
+    setRecession(Math.max(recession, Math.round((result.state.crisis.financialContagion || 0) * 0.8)));
+    setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil((result.state.crisis.nuclearRisk || 0) / 22))));
+    setWarLog(l => [...l, `D${day} · Operation resolved: ${result.entry.title} — ${result.entry.outcome}.`].slice(-16));
+    setTimeline(t => [...t, { day, act, title: "Operation Resolved", body: `${result.entry.title} — ${result.entry.outcome}` }].slice(-10));
+    setSaveMessage(`Resolved ${result.entry.title}: ${result.entry.outcome}.`);
+    setPhase(readyOps(result.state).length ? "opResolve" : "choose");
+  }, [warOps, day, act, fid, stats, crisis, fleetAssets, chainHistory, recession, nukeAlert]);
+
+  const handleStartLifeProject = useCallback((projectId: string) => {
+    if (!lifeProfile) return;
+    const synced = lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent });
+    const result = startOp(synced, projectId);
+    if (!result.ok) { setSaveMessage(result.reasons[0] || "Project could not start."); return; }
+    setLifeOps(result.state);
+    setLifeStats(result.state.stats);
+    setLifeMarkets(result.state.markets);
+    setLifeLog(l => [...l, `D${lifeDay} · Project started: ${opTitle(projectId)}.`].slice(-12));
+    setSaveMessage(`Started ${opTitle(projectId)}.`);
+  }, [lifeOps, lifeDay, lifeProfile, lifeStats, lifeMarkets, lifeEvent]);
+
+  const handleAbandonLifeProject = useCallback((activeOpId: string) => {
+    if (!lifeProfile) return;
+    const synced = lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent });
+    const before = synced.activeOps.length;
+    const next = abandonOp(synced, activeOpId);
+    setLifeOps(next);
+    if (next.activeOps.length < before) {
+      setLifeLog(l => [...l, `D${lifeDay} · Project abandoned.`].slice(-12));
+      setSaveMessage("Project abandoned.");
+    }
+  }, [lifeOps, lifeDay, lifeProfile, lifeStats, lifeMarkets, lifeEvent]);
+
+  const handleResolveLifeProject = useCallback((activeOpId?: string) => {
+    if (!lifeProfile) return;
+    const synced = lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent });
+    const nextReady = activeOpId ? synced.activeOps.find(op => op.instanceId === activeOpId) : readyOps(synced)[0];
+    if (!nextReady) return;
+    const result = resolveOp(synced, nextReady.instanceId, opsRng);
+    if (!result.ok || !result.entry) { setSaveMessage(result.reason || "Project could not resolve."); return; }
+    setLifeOps(result.state);
+    setLifeStats(result.state.stats);
+    setLifeMarkets(result.state.markets);
+    setLifeLog(l => [...l, `D${lifeDay} · Project resolved: ${result.entry.title} — ${result.entry.outcome}.`].slice(-12));
+    setSaveMessage(`Resolved ${result.entry.title}: ${result.entry.outcome}.`);
+  }, [lifeOps, lifeDay, lifeProfile, lifeStats, lifeMarkets, lifeEvent]);
+
   const pickChoice = useCallback((c, sc) => {
     const crisisDelta = crisisImpact(c);
-    const nextCrisis = applyCrisis(crisis, crisisDelta);
+    let nextCrisis = applyCrisis(crisis, crisisDelta);
     const pressureDelta = factionPressureImpact(fid, c, nextCrisis);
-    const ns = apE(apE(stats, c.e), pressureDelta);
+    let ns = apE(apE(stats, c.e), pressureDelta);
     const nt = turn + 1;
     const nd = Math.min(day + rnd(2, 4), 45);
     const na = Math.min(Math.ceil(nt / 7), 6);
+    const elapsedDays = nd - day;
+    const tickedOps = tickOps(warOpsContext(warOps, { day, act, fid, stats: ns, crisis: nextCrisis, fleets: fleetAssets, chainHistory }), elapsedDays, opsRng);
+    ns = tickedOps.stats;
+    nextCrisis = tickedOps.crisis;
     if (c.strike) { setStrikes(s => s + 1); setNukeAlert(n => Math.min(5, n + 1)); }
     if ((c.e.economy || 0) < -10) setRecession(r => Math.min(100, r + 4));
     if ((c.e.fuel || 0) < -5) setOil(o => Math.min(250, o + rnd(5, 15)));
@@ -1583,24 +1963,37 @@ export default function App() {
     setWarLog(l => [...l, entry].slice(-16));
     setTimeline(t => [...t, point].slice(-10));
     setStats(ns); setDay(nd); setAct(na); setTurn(nt); setChosen({ c, sc, crisisDelta, pressureDelta, category });
-    const factionEvent = factionTriggeredEvent(fid, ns, nextCrisis, usedFactionEvents);
-    const chainEvent = pickChainEvent({ fid, stats: ns, crisis: nextCrisis, fleets: fleetAssets, act: na, day: nd, counts: nextCounts, lastChoice: c, used: usedChainEvents, history: chainHistory });
+    const hasPendingFollowUp = tickedOps.pendingFollowUps.length > 0;
+    const factionEvent = hasPendingFollowUp ? null : factionTriggeredEvent(fid, ns, nextCrisis, usedFactionEvents);
+    const chainEvent = hasPendingFollowUp || factionEvent ? null : pickChainEvent({ fid, stats: ns, crisis: nextCrisis, fleets: fleetAssets, act: na, day: nd, counts: nextCounts, lastChoice: c, used: usedChainEvents, history: chainHistory });
     const suddenChance = 0.18 + Math.max(nextCrisis.escalationLevel, nextCrisis.financialContagion, nextCrisis.mediaPanic, nextCrisis.cyberDisruption, 0) / 280;
-    if (factionEvent) {
+    const suddenCandidate = hasPendingFollowUp || factionEvent || chainEvent || Math.random() >= suddenChance ? null : pickSuddenEvent(usedSudden, nextCrisis);
+    const interstitial = chooseInterstitial(tickedOps, factionEvent || chainEvent, suddenCandidate);
+    setWarOps({ ...interstitial.state, act: na });
+    if (interstitial.kind === "follow-up" && interstitial.event) {
+      const follow = interstitial.event as AnyRecord;
+      setWarLog(l => [...l, `D${nd} - Follow-up: ${follow.title}. ${follow.note}`].slice(-16));
+      setTimeline(t => [...t, { day: nd, act: na, title: "Operation Follow-up", body: `${follow.title} - ${follow.note}` }].slice(-10));
+      setSudden({ id: follow.id, t: follow.title, d: follow.note, e: {}, crisis: {}, icon: "", kindLabel: "Follow-up Event" });
+    } else if (interstitial.kind === "chain" && interstitial.event && factionEvent && (interstitial.event as AnyRecord).id === factionEvent.id) {
+      const delivered = interstitial.event as AnyRecord;
+      setUsedFactionEvents(u => new Set([...u, delivered.id]));
+      setSudden({ ...delivered, kindLabel: "Faction Event" });
+    } else if (factionEvent) {
       setUsedFactionEvents(u => new Set([...u, factionEvent.id]));
-      setSudden(factionEvent);
-    } else if (chainEvent) {
+      setSudden({ ...factionEvent, kindLabel: "Faction Event" });
+    } else if (interstitial.kind === "chain" && interstitial.event && chainEvent) {
       setUsedChainEvents(u => new Set([...u, chainEvent.id]));
       setChainHistory(h => [...h, { id: chainEvent.id, t: chainEvent.t, day: nd, act: na, score: chainEvent.score }].slice(-12));
       setWarLog(l => [...l, `D${nd} · Crisis Chain: ${chainEvent.t}. ${chainEvent.d}`].slice(-16));
       setTimeline(t => [...t, { day: nd, act: na, title: "Crisis Chain", body: `${chainEvent.t} · score ${chainEvent.score}` }].slice(-10));
-      setSudden(chainEvent);
-    } else if (Math.random() < suddenChance) {
-      const se = pickSuddenEvent(usedSudden, nextCrisis);
-      if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden(se); }
+      setSudden({ ...chainEvent, kindLabel: "Crisis Chain" });
+    } else if (interstitial.kind === "sudden" && interstitial.event) {
+      const se = interstitial.event as AnyRecord;
+      if (se) { setUsedSudden(u => new Set([...u, se.id])); setSudden({ ...se, kindLabel: "Sudden Event" }); }
     }
     setPhase("result");
-  }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, usedChainEvents, chainHistory, decisionCounts, fleetAssets, recession, nukeAlert]);
+  }, [stats, crisis, turn, day, act, F, fid, usedSudden, usedFactionEvents, usedChainEvents, chainHistory, decisionCounts, fleetAssets, recession, nukeAlert, warOps]);
 
   const handleFleetAction = useCallback((idx: number, action: string) => {
     const fl = fleetAssets[idx];
@@ -1636,14 +2029,17 @@ export default function App() {
 
   const nextTurn = useCallback(() => {
     let ns = stats;
+    let nc = crisis;
     if (sudden) {
       ns = apE(stats, sudden.e);
-      const nextCrisis = applyCrisis(crisis, sudden.crisis || SUDDEN_CRISIS_EFFECTS[sudden.id] || {});
-      setStats(ns); setCrisis(nextCrisis); setSudden(null);
-      setOil(Math.round(92 + nextCrisis.oilShock * 1.35));
-      setRecession(Math.max(recession, Math.round(nextCrisis.financialContagion * 0.8)));
-      setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nextCrisis.nuclearRisk / 22))));
+      nc = applyCrisis(crisis, sudden.crisis || SUDDEN_CRISIS_EFFECTS[sudden.id] || {});
+      setStats(ns); setCrisis(nc); setSudden(null);
+      setOil(Math.round(92 + nc.oilShock * 1.35));
+      setRecession(Math.max(recession, Math.round(nc.financialContagion * 0.8)));
+      setNukeAlert(Math.max(nukeAlert, Math.min(5, Math.ceil(nc.nuclearRisk / 22))));
     }
+    const syncedOps = warOpsContext(warOps, { day, act, fid, stats: ns, crisis: nc, fleets: fleetAssets, chainHistory });
+    if (readyOps(syncedOps).length) { setWarOps(syncedOps); setPhase("opResolve"); return; }
     const fleetEvent = fleetTriggeredEvent(fid, fleetAssets, usedFleetEvents);
     if (!sudden && fleetEvent) {
       setUsedFleetEvents(u => new Set([...u, fleetEvent.id]));
@@ -1651,32 +2047,45 @@ export default function App() {
     }
     const ni = qi + 1;
     if (turn >= 42 || day >= 45 || ni >= queue.length) {
-      setEnding(getEnding(fid, ns, { crisis, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets, chains: chainHistory })); setScreen("ending"); return;
+      const finalOps = finalizeOpsForCampaignEndSave(syncedOps, opsRng);
+      const finalStats = finalOps.stats;
+      const finalCrisis = finalOps.crisis;
+      setWarOps(finalOps);
+      setStats(finalStats); setCrisis(finalCrisis);
+      setEnding(getEnding(fid, finalStats, { crisis: finalCrisis, decisionCounts, timeline, log: warLog, strikes, fleets: fleetAssets, chains: chainHistory, warOps: finalOps })); setScreen("ending"); return;
     }
     setQi(ni); setPhase("choose");
-  }, [stats, crisis, sudden, qi, turn, day, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes, fleetAssets, usedFleetEvents, chainHistory]);
+  }, [stats, crisis, sudden, qi, turn, day, act, queue, fid, recession, nukeAlert, decisionCounts, timeline, warLog, strikes, fleetAssets, usedFleetEvents, chainHistory, warOps]);
 
   const pickLifeChoice = useCallback((choice) => {
     if (!lifeProfile || !lifeEvent) return;
     const resolved = resolveLifeChoice(lifeStats, lifeMarkets, lifeEvent, choice, lifeDay);
-    const nextLog = [...lifeLog, resolved.entry].slice(-12);
+    let nextStats = resolved.stats;
+    let nextMarkets = resolved.markets;
+    const tickedOps = tickOps(lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: nextStats, markets: nextMarkets, event: lifeEvent }), 1, opsRng);
+    nextStats = tickedOps.stats;
+    nextMarkets = tickedOps.markets;
+    const stalled = tickedOps.opsHistory.filter(entry => entry.outcome === "abandoned" && entry.day === tickedOps.day && entry.note === "stalled").map(entry => entry.title);
+    const nextLog = [...lifeLog, resolved.entry, ...stalled.map(title => `D${tickedOps.day} · Project stalled: ${title}.`)].slice(-12);
     const nextStrategies = { ...lifeStrategyCounts, [choice.strategy || "general"]: (lifeStrategyCounts[choice.strategy || "general"] || 0) + 1 };
     setLifeStrategyCounts(nextStrategies);
     if (lifeDay >= lifeProfile.length) {
-      setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
-      setLifeEnding(getLifeEnding(lifeProfile, resolved.stats, { strategyCounts: nextStrategies })); setScreen("lifeEnding"); return;
+      const finalOps = finalizeOpsForCampaignEndSave(tickedOps, opsRng);
+      setLifeStats(finalOps.stats); setLifeMarkets(finalOps.markets); setLifeLog(nextLog); setLifeOps(finalOps);
+      setLifeEnding(getLifeEnding(lifeProfile, finalOps.stats, { strategyCounts: nextStrategies, lifeOps: finalOps })); setScreen("lifeEnding"); return;
     }
     const nd = lifeDay + 1;
-    setLifeStats(resolved.stats); setLifeMarkets(resolved.markets); setLifeLog(nextLog);
-    setLifeDay(nd); setLifeEvent(buildLifeEvent(nd, lifeProfile, resolved.stats));
-  }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts]);
+    const nextEvent = buildLifeEvent(nd, lifeProfile, nextStats);
+    setLifeStats(nextStats); setLifeMarkets(nextMarkets); setLifeLog(nextLog);
+    setLifeDay(nd); setLifeEvent(nextEvent); setLifeOps(lifeOpsContext(tickedOps, { day: nd, profile: lifeProfile, stats: nextStats, markets: nextMarkets, event: nextEvent }));
+  }, [lifeProfile, lifeEvent, lifeStats, lifeMarkets, lifeDay, lifeLog, lifeStrategyCounts, lifeOps]);
 
   const activeControls = <CampaignControls mode={screen === "lifeGame" || screen === "lifeEnding" ? "Life Campaign" : "War Room Campaign"} canLoad={saveAvailable} message={saveMessage} onSave={saveCampaign} onLoad={loadCampaign} onClear={clearSave} onExport={exportSummary} onRestart={restartActive} />;
 
   if (screen === "menu") return <div style={S.root}><MainMenu onWar={() => setScreen("faction")} onLife={() => setScreen("lifeSetup")} canLoad={saveAvailable} saveMessage={saveMessage} onLoad={loadCampaign} onClear={clearSave} /></div>;
   if (screen === "lifeSetup") return <LifeSetupScreen draft={lifeDraft} setDraft={setLifeDraft} onStart={startLife} onBack={() => setScreen("menu")} />;
-  if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} controls={activeControls} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} />;
-  if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} controls={activeControls} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
+  if (screen === "lifeGame" && lifeProfile && lifeEvent) return <LifeGameScreen profile={lifeProfile} day={lifeDay} stats={lifeStats} markets={lifeMarkets} event={lifeEvent} log={lifeLog} controls={activeControls} projects={lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent })} onChoice={pickLifeChoice} onBack={() => setScreen("menu")} onStartProject={handleStartLifeProject} onAbandonProject={handleAbandonLifeProject} onResolveProject={handleResolveLifeProject} />;
+  if (screen === "lifeEnding" && lifeProfile) return <LifeEndingScreen ending={lifeEnding} profile={lifeProfile} stats={lifeStats} controls={activeControls} ops={lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent })} onRestart={() => setScreen("lifeSetup")} onMenu={() => setScreen("menu")} />;
   if (screen === "faction") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<FactionScreen onPick={startGame} /></div>;
   if (screen === "ending") return <div style={S.root}><ManualButton onClick={() => setManualOpen(true)} />{manualOpen && <ManualOverlay onClose={() => setManualOpen(false)} />}<EndingScreen F={F} ending={ending} stats={stats} controls={activeControls} onRestart={() => setScreen("faction")} /></div>;
   if (!F) return null;
@@ -1686,6 +2095,8 @@ export default function App() {
 
   const nukeColors = ["#1D9E75", "#BA7517", "#BA7517", "#E24B4A", "#A32D2D"];
   const fleetOps = fleetSummary(fleetAssets);
+  const displayWarOps = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
+  const resolvingOp = readyOps(displayWarOps)[0];
 
   return (
     <div style={S.root}>
@@ -1768,6 +2179,21 @@ export default function App() {
       {/* Main content */}
       <div style={{ ...S.shell, paddingTop: "12px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "10px", alignItems: "start" }}>
         <div>
+        {phase === "opResolve" && resolvingOp && (
+          <div style={{ ...S.panel, padding: "14px" }}>
+            <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Operation Resolution</div>
+            <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--color-text-primary)", marginBottom: "6px", lineHeight: 1.35 }}>{opTitle(resolvingOp.id)}</div>
+            <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", lineHeight: 1.65, marginBottom: "10px" }}>This operation has completed its timeline and must resolve before the next crisis card.</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "10px" }}>
+              <span style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "999px", background: "#E6F1FB", color: "#185FA5", border: "0.5px solid #85B7EB" }}>{resolvingOp.progress}/{resolvingOp.duration} days</span>
+              <span style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "999px", background: "#FAEEDA", color: "#854F0B", border: "0.5px solid #EF9F27" }}>risk penalty {resolvingOp.riskPenalty}</span>
+            </div>
+            <button onClick={handleResolveWarOp}
+              style={{ width: "100%", padding: "10px", border: `1px solid ${F.bd}`, borderRadius: "var(--border-radius-md)", cursor: "pointer", background: "var(--color-background-primary)", fontSize: "11px", fontWeight: 500, color: F.color, letterSpacing: "0.04em", fontFamily: "var(--font-sans)" }}>
+              Resolve Operation
+            </button>
+          </div>
+        )}
         {phase === "choose" && (
           <div style={{ ...S.panel, padding: "14px" }}>
             <div style={{ fontSize: "9px", color: F.color, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 800, marginBottom: "5px" }}>Active Crisis Card</div>
@@ -1836,7 +2262,7 @@ export default function App() {
 
             {sudden && (
               <div style={{ background: "#FAEEDA", borderLeft: "3px solid #BA7517", borderRadius: "0 var(--border-radius-md) var(--border-radius-md) 0", padding: "9px 13px", marginBottom: "8px" }}>
-                <div style={{ fontSize: "10px", fontWeight: 500, color: "#854F0B", marginBottom: "2px" }}>{sudden.icon} Sudden Event: {sudden.t}</div>
+                <div style={{ fontSize: "10px", fontWeight: 500, color: "#854F0B", marginBottom: "2px" }}>{sudden.icon} {sudden.kindLabel || "Sudden Event"}: {sudden.t}</div>
                 <div style={{ fontSize: "10px", color: "var(--color-text-secondary)", marginBottom: "5px" }}>{sudden.d}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
                   {Object.entries(sudden.e as StatMap).map(([k, v]) => v !== 0 ? (
@@ -1867,7 +2293,10 @@ export default function App() {
           </div>
         )}
         </div>
-        <WarRoomSidePanel log={warLog} timeline={timeline} />
+        <div style={{ display: "grid", gap: "8px" }}>
+          <WarOperationsPanel ops={displayWarOps} onStart={handleStartWarOp} onAbandon={handleAbandonWarOp} />
+          <WarRoomSidePanel log={warLog} timeline={timeline} />
+        </div>
       </div>
     </div>
   );
