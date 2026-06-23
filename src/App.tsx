@@ -625,14 +625,15 @@ const LIFE_LOCAL_EVENTS: AnyRecord[] = [
 
 const LIFE_ACTIONS: AnyRecord[] = [
   { l: "Work overtime", tag: "WORK", strategy: "money", e: { cash: 10, monthlyIncome: 1, jobSecurity: 3, stress: 8, health: -4, familyStability: -3 }, m: { jobs: 1 }, o: "You trade body and time for cashflow." },
-  { l: "Negotiate debt holiday", tag: "FIN", strategy: "money", e: { cash: 4, debt: -9, reputation: -2, legalRisk: 2, stress: 3 }, m: { usd: 1 }, o: "You buy breathing room, but lenders remember." },
+  { l: "Negotiate debt holiday", tag: "FIN", strategy: "money", e: { cash: 2, debt: -12, reputation: -2, legalRisk: 2, stress: -4 }, m: { usd: 1 }, o: "You buy breathing room, but lenders remember." },
   { l: "Emergency freelance sprint", tag: "WORK", strategy: "career", e: { cash: 8, careerCapital: 6, jobSecurity: 2, stress: 7, internetAccess: -3 }, m: { jobs: 1 }, o: "A short contract becomes both income and proof of competence." },
   { l: "Build crisis skills", tag: "WORK", strategy: "career", e: { careerCapital: 11, jobSecurity: 4, cash: -3, stress: 4, internetAccess: -2 }, m: { jobs: 1 }, o: "It does not solve today, but it changes who can hire you tomorrow." },
   { l: "Buy supplies", tag: "HOME", strategy: "supplies", e: { cash: -9, foodSupply: 11, medicineAccess: 4, emergencyPreparedness: 7 }, m: { food: 2, medicine: 1 }, o: "Your shelves look less dramatic and more useful." },
   { l: "Repair home fallback kit", tag: "HOME", strategy: "supplies", e: { emergencyPreparedness: 10, housingSecurity: 4, fuelAccess: 3, cash: -6, morale: -1 }, m: { rent: 1 }, o: "The apartment becomes less fragile even if it is not comfortable." },
   { l: "Help family logistics", tag: "CARE", strategy: "family", e: { cash: -6, familyStability: 12, morale: 4, reputation: 3, stress: 3 }, m: {}, o: "Someone close to you sleeps better tonight." },
-  { l: "Join community aid", tag: "CARE", strategy: "community", e: { reputation: 11, morale: 6, foodSupply: -4, stress: 3, familyStability: 4 }, m: { food: -1 }, o: "The network becomes part of your emergency kit." },
-  { l: "Take a real recovery day", tag: "HEAL", strategy: "health", e: { health: 10, stress: -12, morale: 5, cash: -5, jobSecurity: -3 }, m: {}, o: "You stop the slide before your body makes the decision for you." },
+  { l: "Join community aid", tag: "CARE", strategy: "community", e: { reputation: 11, morale: 7, foodSupply: -2, medicineAccess: 2, stress: 1, familyStability: 4 }, m: { food: -1 }, o: "The network becomes part of your emergency kit." },
+  { l: "Ask community for help", tag: "CARE", strategy: "community", e: { foodSupply: 8, medicineAccess: 6, stress: -3, morale: 3, reputation: -4 }, m: { food: -1, medicine: -1 }, o: "You spend social capital instead of pretending the pantry is fine." },
+  { l: "Take a real recovery day", tag: "HEAL", strategy: "health", e: { health: 12, stress: -16, morale: 8, cash: -5, jobSecurity: -2 }, m: {}, o: "You stop the slide before your body makes the decision for you." },
   { l: "Clinic and medicine run", tag: "HEAL", strategy: "health", e: { health: 8, medicineAccess: 8, cash: -7, stress: 2, legalRisk: -1 }, m: { medicine: 2 }, o: "You spend money now to avoid paying with health later." },
   { l: "Apply overseas", tag: "DIP", strategy: "migration", e: { migrationReadiness: 12, cash: -6, stress: 5, familyStability: -2, careerCapital: 2 }, m: { usd: 2 }, o: "Forms, scans, references, and one more possible door." },
   { l: "Secure documents and exit cash", tag: "DIP", strategy: "migration", e: { migrationReadiness: 9, legalRisk: -4, emergencyPreparedness: 3, cash: -8, morale: -2 }, m: { usd: 2 }, o: "You reduce the chance that panic ruins the exit window." },
@@ -787,6 +788,7 @@ const mergeEffect = (base = {}, extra = {}) => {
   Object.entries(extra).forEach(([k, v]) => { out[k] = Number(out[k] || 0) + Number(v); });
   return out;
 };
+const hasLifeProject = (ops: OpsState | undefined, id: string) => outcomeCount(ops, id, new Set(["success", "partial"])) > 0;
 const cloneLifeAction = (a: AnyRecord): AnyRecord => ({ ...a, e: { ...(a.e || {}) }, m: { ...(a.m || {}) } });
 const actionByStrategy = (strategy: string, alt = 0) => LIFE_ACTIONS.filter(a => a.strategy === strategy)[alt] || LIFE_ACTIONS.find(a => a.strategy === strategy) || LIFE_ACTIONS[0];
 const recoveryStrategiesFor = (stats: StatMap) => {
@@ -829,6 +831,9 @@ function contextualizeLifeAction(action: AnyRecord, profile: AnyRecord, crisis: 
   if (highCyber && a.strategy === "career") a.e = mergeEffect(a.e, { internetAccess: -2, careerCapital: 2 });
   if (highHumanitarian && a.strategy === "health") a.e = mergeEffect(a.e, { medicineAccess: 3, cash: -2 });
   if ((stats.stress || 0) > 75 && a.strategy === "health") a.e = mergeEffect(a.e, { stress: -4, health: 3 });
+  if ((stats.stress || 0) > 82 && a.l === "Take a real recovery day") a.e = mergeEffect(a.e, { stress: -4, morale: 2 });
+  if ((stats.debt || 0) > 70 && a.l === "Negotiate debt holiday") a.e = mergeEffect(a.e, { debt: -4, stress: -2 });
+  if (((stats.foodSupply || 0) < 30 || (stats.medicineAccess || 0) < 30) && a.l === "Ask community for help") a.e = mergeEffect(a.e, { foodSupply: 3, medicineAccess: 3 });
   if ((stats.foodSupply || 0) < 30 && a.strategy === "supplies") a.e = mergeEffect(a.e, { foodSupply: 4, morale: 1 });
   if ((stats.cash || 0) < 25 && ["HOME", "DIP", "HEAL"].includes(a.tag)) a.e = mergeEffect(a.e, { debt: 3, stress: 1 });
   a.o = `${a.o} Impact reflects your ${profile.role.name}, ${profile.spawn.name}, and ${profile.philosophy.name.toLowerCase()} posture.`;
@@ -848,6 +853,7 @@ function buildLifeChoices(day, profile, crisis, stats) {
   if ((crisis.financialContagion || 0) > 58 || (stats.cash || 0) < 30) add(actionByStrategy("money", 1));
   if ((crisis.oilShock || 0) > 55 || (stats.foodSupply || 0) < 35) add(actionByStrategy("supplies"));
   if ((crisis.escalationLevel || 0) > 55 || (stats.migrationReadiness || 0) < 35) add(actionByStrategy("migration"));
+  if ((stats.foodSupply || 0) < 28 || (stats.medicineAccess || 0) < 28 || (stats.morale || 0) < 25) add(actionByStrategy("community", 1));
   return Array.from(chosen.values()).slice(0, 6);
 }
 function buildLifeEvent(day, profile, currentStats = profile.stats) {
@@ -884,10 +890,57 @@ function buildLifeEvent(day, profile, currentStats = profile.stats) {
     crisis,
   };
 }
-function resolveLifeChoice(stats, markets, event, choice, day) {
+const softenNegativeKeys = (effects: StatMap = {}, keys: string[], factor: number) => {
+  const out = { ...effects };
+  keys.forEach(key => {
+    const value = Number(out[key] || 0);
+    if (value < 0) out[key] = Math.trunc(value * factor);
+  });
+  return out;
+};
+const softenPositiveKeys = (effects: StatMap = {}, keys: string[], factor: number) => {
+  const out = { ...effects };
+  keys.forEach(key => {
+    const value = Number(out[key] || 0);
+    if (value > 0) out[key] = Math.trunc(value * factor);
+  });
+  return out;
+};
+function protectedLifeEffects(effects: StatMap = {}, stats: StatMap, event: AnyRecord, ops?: OpsState): StatMap {
+  let out = { ...effects };
+  const localText = `${event.local?.t || ""} ${event.local?.d || ""}`.toLowerCase();
+  const shortageLike = ["blackout", "fuel", "shortage", "port", "clinic", "ration"].some(word => localText.includes(word));
+  const prep = Number(stats.emergencyPreparedness || 0);
+  if (prep >= 80 && shortageLike) out = softenNegativeKeys(out, ["foodSupply", "fuelAccess", "medicineAccess", "internetAccess", "health", "morale", "jobSecurity"], prep >= 100 ? 0.35 : 0.55);
+  if (hasLifeProject(ops, "PJ-09")) out = softenNegativeKeys(out, ["internetAccess", "jobSecurity"], localText.includes("blackout") || localText.includes("cyber") ? 0.2 : 0.45);
+  if (hasLifeProject(ops, "PJ-08")) out = softenNegativeKeys(out, ["foodSupply", "medicineAccess", "morale"], 0.5);
+  if (hasLifeProject(ops, "PJ-07")) {
+    out = softenPositiveKeys(out, ["stress"], 0.5);
+    out = softenNegativeKeys(out, ["health", "morale"], 0.55);
+  }
+  if (hasLifeProject(ops, "PJ-01")) {
+    out = softenPositiveKeys(out, ["debt", "stress"], 0.65);
+    out = softenNegativeKeys(out, ["cash"], 0.75);
+  }
+  const career = Number(stats.careerCapital || 0);
+  if (career >= 80) out = softenNegativeKeys(out, ["jobSecurity"], career >= 90 ? 0.25 : 0.5);
+  return out;
+}
+function applyLifeProjectFloors(nextStats: StatMap, previousStats: StatMap, ops?: OpsState) {
+  let out = { ...nextStats };
+  if (hasLifeProject(ops, "PJ-01") && Number(previousStats.cash || 0) >= 12) out.cash = Math.max(Number(out.cash || 0), 18);
+  if (hasLifeProject(ops, "PJ-02") && Number(out.careerCapital || 0) >= 80) out.jobSecurity = Math.max(Number(out.jobSecurity || 0), 28);
+  if (hasLifeProject(ops, "PJ-03") && Number(out.migrationReadiness || 0) >= 90) out.legalRisk = Math.min(Number(out.legalRisk || 0), 82);
+  if (hasLifeProject(ops, "PJ-09") && Number(out.emergencyPreparedness || 0) >= 80) out.internetAccess = Math.max(Number(out.internetAccess || 0), 28);
+  return out;
+}
+function resolveLifeChoice(stats, markets, event, choice, day, ops?: OpsState) {
   const c = event.crisis || {};
   const drift = { food: rnd(0, 3) + Math.round((c.oilShock || 0) / 25), fuel: rnd(-1, 5) + Math.round((c.oilShock || 0) / 18), rent: rnd(0, 2) + Math.round((c.refugeePressure || 0) / 40), medicine: rnd(0, 3) + Math.round((c.humanitarianDamage || 0) / 28), usd: rnd(-2, 5) + Math.round((c.financialContagion || 0) / 35), jobs: -rnd(0, 2) - Math.round((c.financialContagion || 0) / 45) };
-  const ns = lifeApplyStats(lifeApplyStats(lifeApplyStats(stats, event.local.e), event.pressure), choice.e);
+  const localEffects = protectedLifeEffects(event.local.e, stats, event, ops);
+  const afterLocal = lifeApplyStats(stats, localEffects);
+  const pressureEffects = protectedLifeEffects(event.pressure, afterLocal, event, ops);
+  const ns = applyLifeProjectFloors(lifeApplyStats(lifeApplyStats(afterLocal, pressureEffects), choice.e), stats, ops);
   const nm = lifeApplyMarkets(lifeApplyMarkets(lifeApplyMarkets(markets, event.local.m), drift), choice.m);
   const preview = Object.entries(choice.e || {}).slice(0, 5).map(([k, v]) => `${Number(v) > 0 ? "+" : ""}${v} ${lifeLabel(k)}`).join(", ");
   const entry = `Day ${day}: ${event.local.t}. ${choice.l}. ${choice.o}${preview ? ` Consequences: ${preview}.` : ""}`;
@@ -903,11 +956,19 @@ function getLifeEnding(profile, stats, context: AnyRecord = {}) {
   const why = `You ended in ${profile.spawn.name} as a ${profile.role.name}: cash ${stats.cash}, debt ${stats.debt}, stress ${stats.stress}, reputation ${stats.reputation}. ${lifeStrategyNote(context.strategyCounts)}`;
   const projectHooks = projectEndingNotes(context.lifeOps, stats);
   if (projectHooks.title === "Burned") return { title: "Burned", grade: "F", body: `The second side-hustle failure stopped being a setback and became the ending. ${why} ${projectHooks.notes.join(" ")}`, context };
+  const burnout = Number(stats.stress || 0) >= 90 && Number(stats.morale || 0) <= 25 && (Number(stats.jobSecurity || 0) <= 35 || Number(stats.health || 0) <= 35);
+  const severeBurnout = Number(stats.stress || 0) >= 96 && Number(stats.morale || 0) <= 12 && Number(stats.health || 0) <= 28;
+  const exitReady = Number(stats.migrationReadiness || 0) >= 90 && Number(stats.cash || 0) >= 28 && Number(stats.health || 0) >= 32 && Number(stats.morale || 0) >= 18;
+  const careerResilient = Number(stats.careerCapital || 0) >= 90 && Number(stats.health || 0) >= 42 && Number(stats.morale || 0) >= 24;
+  const preparedSurvivor = Number(stats.emergencyPreparedness || 0) >= 90 && Number(stats.familyStability || 0) >= 60 && Number(stats.health || 0) >= 36;
   let base;
   if (stats.debt > 105 || (stats.cash < 22 && stats.debt > 78)) base = { title: "Debt Collapse", grade: "F", body: `Compounding debt outran income and emergency cash. ${why}` };
   else if (stats.cash > 118 && stats.reputation < 38) base = { title: "Black Market King", grade: "B-", body: `You profited from shortages faster than trust could survive it. ${why}` };
   else if (stats.cash > 126) base = { title: "Crisis Millionaire", grade: "A-", body: `You converted volatility, income, and cash discipline into a balance sheet. ${why}` };
-  else if (stats.health < 34 || stats.stress > 82 || stats.morale < 30) base = { title: "Burned-Out Professional", grade: "C-", body: `You kept functioning until the crisis took it out of your body and mind. ${why}` };
+  else if (exitReady && !severeBurnout) base = { title: "Exit-Ready Survivor", grade: "B+", body: `The crisis did not become easy, but your documents, options, and timing gave you a real exit path. ${why}` };
+  else if (careerResilient && !severeBurnout) base = { title: "Crisis-Proof Professional", grade: "B+", body: `Your work life was battered, but career capital gave you leverage when job security cracked. ${why}` };
+  else if (preparedSurvivor && !severeBurnout) base = { title: "Prepared Household Survivor", grade: "B+", body: `Preparation did not remove the crisis, but it kept shortages from becoming the whole story. ${why}` };
+  else if (burnout || stats.health < 30) base = { title: "Burned-Out Professional", grade: "C-", body: `You kept functioning until the crisis took it out of your body and mind. ${why}` };
   else if (stats.familyStability > 84) base = { title: "Family Protector", grade: "A", body: `You did not save the world. You kept your people stable, housed, and supplied. ${why}` };
   else if (profile.philosophy.id === "exit" && stats.migrationReadiness > 72 && stats.cash > 48 && stats.legalRisk < 48) base = { title: "Expat Escape", grade: "B+", body: `Documents, money, and timing lined up when the exit window opened. ${why}` };
   else if (stats.reputation > 84) base = { title: "Community Pillar", grade: "A", body: `Your network became infrastructure. People survived because you made trust practical. ${why}` };
@@ -915,7 +976,13 @@ function getLifeEnding(profile, stats, context: AnyRecord = {}) {
   else base = { title: "Quiet Survivor", grade: "B", body: `No headlines, no fortune, no collapse. You endured the crisis one careful day at a time. ${why}` };
   const title = projectHooks.title || base.title;
   const grade = projectHooks.grade ? gradeFloor(base.grade, projectHooks.grade) : base.grade;
-  const notes = projectHooks.notes.length ? ` ${projectHooks.notes.join(" ")}` : "";
+  const extraNotes = [
+    ...(projectHooks.notes || []),
+    Number(stats.migrationReadiness || 0) >= 90 ? "Your migration readiness remained a real escape option even under pressure." : "",
+    Number(stats.careerCapital || 0) >= 90 ? "Career capital gave you bargaining power when jobs became fragile." : "",
+    Number(stats.emergencyPreparedness || 0) >= 90 ? "Emergency preparedness absorbed part of the crisis damage." : "",
+  ].filter(Boolean);
+  const notes = extraNotes.length ? ` ${extraNotes.join(" ")}` : "";
   return { ...base, title, grade, body: `${base.body}${notes}`, context };
 }
 
@@ -2083,7 +2150,7 @@ export default function App() {
 
   const pickLifeChoice = useCallback((choice) => {
     if (!lifeProfile || !lifeEvent) return;
-    const resolved = resolveLifeChoice(lifeStats, lifeMarkets, lifeEvent, choice, lifeDay);
+    const resolved = resolveLifeChoice(lifeStats, lifeMarkets, lifeEvent, choice, lifeDay, lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: lifeStats, markets: lifeMarkets, event: lifeEvent }));
     let nextStats = resolved.stats;
     let nextMarkets = resolved.markets;
     const tickedOps = tickOps(lifeOpsContext(lifeOps, { day: lifeDay, profile: lifeProfile, stats: nextStats, markets: nextMarkets, event: lifeEvent }), 1, opsRng);
