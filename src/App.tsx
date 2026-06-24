@@ -57,12 +57,18 @@ const CRISIS_META: AnyRecord = {
   nuclearRisk: { label: "Nuclear Risk" },
 };
 const DEFAULT_CRISIS: StatMap = { globalStability: 62, escalationLevel: 22, financialContagion: 24, oilShock: 32, foodInflation: 28, semiconductorSupply: 72, shippingInsuranceCost: 34, cyberDisruption: 18, refugeePressure: 16, mediaPanic: 25, allianceCohesion: 58, publicTrust: 54, warWeariness: 12, humanitarianDamage: 14, nuclearRisk: 12 };
+const WAR_CAMPAIGN_DAYS = 60;
 const crisisC = (k, v) => CRISIS_META[k]?.goodHigh ? vC(v) : riskC(v);
 const crisisBg = (k, v) => CRISIS_META[k]?.goodHigh ? vBg(v) : riskBg(v);
 const applyCrisis = (s: StatMap, e: StatMap = {}) => {
   const n = { ...s };
   Object.entries(e).forEach(([k, v]) => { if (n[k] !== undefined) n[k] = cl(n[k] + Number(v)); });
   return n;
+};
+const mergeEffects = (base: StatMap = {}, extra: StatMap = {}) => {
+  const merged = { ...base };
+  Object.entries(extra).forEach(([k, v]) => { merged[k] = Number(merged[k] || 0) + Number(v); });
+  return merged;
 };
 const crisisImpact = (c: AnyRecord): StatMap => {
   const e = c.e || {};
@@ -111,6 +117,24 @@ const DECISION_CATEGORIES: AnyRecord = {
 const categoryOf = (c: AnyRecord) => c.strike ? "Military" : (DECISION_CATEGORIES[c.tag] || "Diplomacy");
 const decisionCategoryKeys = ["Military", "Diplomacy", "Cyber", "Finance", "Intelligence", "Logistics", "Domestic Politics", "Humanitarian"];
 const emptyDecisionCounts = () => Object.fromEntries(decisionCategoryKeys.map(k => [k, 0]));
+const EMERGENCY_LIQUIDITY_CHOICE: AnyRecord = {
+  id: "emergency_liquidity_measures",
+  l: "Emergency Liquidity Measures",
+  tag: "ECO",
+  e: { chest: 12, domestic: -6, credibility: -4 },
+  crisis: { financialContagion: 6 },
+  o: "Treasury forces short-term liquidity through emergency facilities. The war chest breathes again, but markets read it as panic and the public sees the bill.",
+  type: "neutral",
+};
+const needsLiquidityRecovery = (stats: StatMap, crisis: StatMap) =>
+  Number(stats.chest ?? 50) <= 5 || Number(stats.economy ?? 50) <= 35 || Number(crisis.financialContagion ?? 0) >= 60;
+const warChoicesFor = (sc: AnyRecord, stats: StatMap, crisis: StatMap) => {
+  const choices = [...(sc.c || [])];
+  if (needsLiquidityRecovery(stats, crisis) && !choices.some(c => c.id === EMERGENCY_LIQUIDITY_CHOICE.id)) {
+    choices.push(EMERGENCY_LIQUIDITY_CHOICE);
+  }
+  return choices;
+};
 const topDeltas = (e: StatMap = {}, meta: AnyRecord = {}, limit = 3) => Object.entries(e)
   .filter(([, v]) => Number(v) !== 0)
   .sort((a, b) => Math.abs(Number(b[1])) - Math.abs(Number(a[1])))
@@ -119,7 +143,7 @@ const topDeltas = (e: StatMap = {}, meta: AnyRecord = {}, limit = 3) => Object.e
 const previewFor = (c: AnyRecord) => {
   const cat = categoryOf(c);
   const direct = topDeltas(c.e || {}, {}, 2);
-  const global = topDeltas(crisisImpact(c), CRISIS_META, 2);
+  const global = topDeltas(mergeEffects(crisisImpact(c), c.crisis || {}), CRISIS_META, 2);
   const tone = c.type === "good" ? "Lower-risk" : c.type === "bad" ? "High-risk" : "Tradeoff";
   return `${cat} · ${tone}${direct.length ? ` · ${direct.join(", ")}` : ""}${global.length ? ` · Global: ${global.join(", ")}` : ""}`;
 };
@@ -928,7 +952,7 @@ const warOpsContext = (ops: OpsState, ctx: AnyRecord): OpsState => ({
   mode: "war",
   day: ctx.day ?? ops.day,
   act: ctx.act ?? ops.act,
-  campaignLength: 45,
+  campaignLength: WAR_CAMPAIGN_DAYS,
   factionId: ctx.fid ?? ops.factionId,
   stats: { ...(ctx.stats || ops.stats || {}) },
   crisis: { ...(ctx.crisis || ops.crisis || {}) },
@@ -985,7 +1009,7 @@ const warSummaryText = (state: AnyRecord) => {
   return [
     "STRAIT PROTOCOL: 2030 - War Room Summary",
     `Faction: ${F ? `${F.name} / ${F.sub}` : state.fid || "Unknown"}`,
-    `Day ${state.day}/45, Act ${state.act}, Turn ${Number(state.turn || 0) + 1}, Phase: ${state.phase}`,
+    `Day ${state.day}/${WAR_CAMPAIGN_DAYS}, Act ${state.act}, Turn ${Number(state.turn || 0) + 1}, Phase: ${state.phase}`,
     `Core stats: ${fmtEntries(state.stats, 14)}`,
     `Global crisis stats: ${fmtEntries(state.crisis, 15)}`,
     `Decision mix: ${fmtEntries(state.decisionCounts, 10) || "none"}`,
@@ -1128,7 +1152,7 @@ function ActProgress({ act, day, F }: AnyRecord) {
           </div>
         ))}
       </div>
-      <div style={{ maxWidth: "1120px", margin: "5px auto 0", fontSize: "9px", color: "var(--color-text-tertiary)", textAlign: "right" }}>Day {day}/45</div>
+      <div style={{ maxWidth: "1120px", margin: "5px auto 0", fontSize: "9px", color: "var(--color-text-tertiary)", textAlign: "right" }}>Day {day}/{WAR_CAMPAIGN_DAYS}</div>
     </div>
   );
 }
@@ -1362,7 +1386,7 @@ function FactionScreen({ onPick }: AnyRecord) {
       <div style={{ ...S.panel, padding: "16px", marginBottom: "12px" }}>
         <div style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--color-text-primary)", marginBottom: "4px" }}>STRAIT PROTOCOL: 2030</div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
-          {["Taiwan Strait Crisis", "6 Factions", "6 Acts", "Day 45"].map(x => <span key={x} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "999px", background: "#E6F1FB", color: "#185FA5", border: "0.5px solid #85B7EB", fontWeight: 600 }}>{x}</span>)}
+          {["Taiwan Strait Crisis", "6 Factions", "6 Acts", `Day ${WAR_CAMPAIGN_DAYS}`].map(x => <span key={x} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "999px", background: "#E6F1FB", color: "#185FA5", border: "0.5px solid #85B7EB", fontWeight: 600 }}>{x}</span>)}
         </div>
         <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", lineHeight: 1.65 }}>Choose your faction. Each plays a different strategic game with its own win conditions, pressures, fleets, and crisis tools.</div>
       </div>
@@ -1663,7 +1687,7 @@ function EndingScreen({ F, ending, stats, controls, onRestart }: AnyRecord) {
   return (
     <div style={{ padding: "20px 14px", textAlign: "center" }}>
       {controls}
-      <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", marginBottom: "16px", letterSpacing: "0.08em" }}>STRAIT PROTOCOL: 2030 · DAY 45</div>
+      <div style={{ fontSize: "11px", color: "var(--color-text-secondary)", marginBottom: "16px", letterSpacing: "0.08em" }}>STRAIT PROTOCOL: 2030 · DAY {WAR_CAMPAIGN_DAYS}</div>
       <div style={{ fontSize: "28px", marginBottom: "8px" }}>{F.flag}</div>
       <div style={{ fontSize: "18px", fontWeight: 500, color: gradeColor, marginBottom: "4px" }}>{ending.title}</div>
       <div style={{ display: "inline-block", padding: "3px 18px", borderRadius: "20px", border: `1.5px solid ${gradeColor}`, fontSize: "16px", fontWeight: 500, color: gradeColor, background: gradeBg, marginBottom: "14px" }}>{ending.grade}</div>
@@ -1934,12 +1958,12 @@ export default function App() {
   }, [lifeOps, lifeDay, lifeProfile, lifeStats, lifeMarkets, lifeEvent]);
 
   const pickChoice = useCallback((c, sc) => {
-    const crisisDelta = crisisImpact(c);
+    const crisisDelta = mergeEffects(crisisImpact(c), c.crisis || {});
     let nextCrisis = applyCrisis(crisis, crisisDelta);
     const pressureDelta = factionPressureImpact(fid, c, nextCrisis);
     let ns = apE(apE(stats, c.e), pressureDelta);
     const nt = turn + 1;
-    const nd = Math.min(day + rnd(2, 4), 45);
+    const nd = Math.min(day + rnd(2, 4), WAR_CAMPAIGN_DAYS);
     const na = Math.min(Math.ceil(nt / 7), 6);
     const elapsedDays = nd - day;
     const tickedOps = tickOps(warOpsContext(warOps, { day, act, fid, stats: ns, crisis: nextCrisis, fleets: fleetAssets, chainHistory }), elapsedDays, opsRng);
@@ -2046,7 +2070,7 @@ export default function App() {
       setSudden(fleetEvent);
     }
     const ni = qi + 1;
-    if (turn >= 42 || day >= 45 || ni >= queue.length) {
+    if (turn >= 42 || day >= WAR_CAMPAIGN_DAYS || ni >= queue.length) {
       const finalOps = finalizeOpsForCampaignEndSave(syncedOps, opsRng);
       const finalStats = finalOps.stats;
       const finalCrisis = finalOps.crisis;
@@ -2097,6 +2121,7 @@ export default function App() {
   const fleetOps = fleetSummary(fleetAssets);
   const displayWarOps = warOpsContext(warOps, { day, act, fid, stats, crisis, fleets: fleetAssets, chainHistory });
   const resolvingOp = readyOps(displayWarOps)[0];
+  const warChoices = warChoicesFor(sc, stats, crisis);
 
   return (
     <div style={S.root}>
@@ -2108,7 +2133,7 @@ export default function App() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "6px" }}>
           <div>
             <div style={{ fontSize: "12px", fontWeight: 500, letterSpacing: "0.08em", color: F.color }}>STRAIT PROTOCOL: 2030</div>
-            <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", marginTop: "1px" }}>{F.flag} {F.sub} · {ACTS[act]} · Day {day}/45 · Turn {turn + 1}</div>
+            <div style={{ fontSize: "9px", color: "var(--color-text-tertiary)", marginTop: "1px" }}>{F.flag} {F.sub} · {ACTS[act]} · Day {day}/{WAR_CAMPAIGN_DAYS} · Turn {turn + 1}</div>
           </div>
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-end" }}>
             {strikes > 0 && <span style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "10px", background: "#FCEBEB", color: "#A32D2D", border: "0.5px solid #F09595", fontWeight: 500 }}>⚡{strikes} strike{strikes !== 1 ? "s" : ""}</span>}
@@ -2173,7 +2198,7 @@ export default function App() {
       {/* Act bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 14px", background: "var(--color-background-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", maxWidth: "1120px", margin: "0 auto" }}>
         <span style={{ fontSize: "10px", fontWeight: 500, color: "var(--color-text-primary)" }}>Act {act}: {ACTS[act]}</span>
-        <span style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>Day {day} of 45 · Turn {turn + 1}</span>
+        <span style={{ fontSize: "9px", color: "var(--color-text-tertiary)" }}>Day {day} of {WAR_CAMPAIGN_DAYS} · Turn {turn + 1}</span>
       </div>
 
       {/* Main content */}
@@ -2205,7 +2230,7 @@ export default function App() {
               </div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-              {sc.c.map((c, i) => (
+              {warChoices.map((c, i) => (
                 <button key={i} onClick={() => pickChoice(c, sc)}
                   style={{ textAlign: "left", padding: "10px 12px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", cursor: "pointer", background: "var(--color-background-primary)", fontSize: "11px", color: "var(--color-text-primary)", lineHeight: 1.5, display: "flex", alignItems: "flex-start", gap: "8px", width: "100%", fontFamily: "var(--font-sans)", transition: "all 0.15s" }}
                   onMouseEnter={e => { e.currentTarget.style.background = "var(--color-background-secondary)"; e.currentTarget.style.borderColor = "var(--color-border-primary)"; }}
@@ -2288,7 +2313,7 @@ export default function App() {
               onMouseEnter={e => { e.currentTarget.style.background = F.bg; }}
               onMouseLeave={e => { e.currentTarget.style.background = "var(--color-background-primary)"; }}
             >
-              Continue → Day {Math.min(day + 3, 45)}
+              Continue → Day {Math.min(day + 3, WAR_CAMPAIGN_DAYS)}
             </button>
           </div>
         )}
