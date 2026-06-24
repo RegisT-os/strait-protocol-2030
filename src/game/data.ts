@@ -353,11 +353,11 @@ export const LIFE_PROJECTS: OperationDefinition[] = [
     upkeep: [{ intervalDays: 1, effects: { cash: -3 }, note: "Auto-deduct savings" }],
     risk: "low",
     success: {
-      effects: { cash: 24, stress: -4, emergencyPreparedness: 6 },
-      notes: ["Forced savings plus small interest"],
+      effects: { cash: 28, stress: -8, emergencyPreparedness: 10 },
+      notes: ["Forced savings plus small interest", "Completed fund softens later cash, debt, and stress shocks"],
     },
     failure: {
-      effects: { stress: 5 },
+      effects: { cash: 8, stress: 2 },
       notes: ["Emergency drains it mid-project; keep half; worsens if household crisis fired"],
     },
     affectedStats: ["cash", "stress", "emergencyPreparedness"],
@@ -378,10 +378,10 @@ export const LIFE_PROJECTS: OperationDefinition[] = [
     upkeep: [{ intervalDays: 2, effects: { stress: 1 } }],
     risk: "low",
     success: {
-      effects: { careerCapital: 14, jobSecurity: 8, monthlyIncome: 6 },
+      effects: { careerCapital: 18, jobSecurity: 14, monthlyIncome: 7, stress: -3 },
     },
     failure: {
-      effects: { careerCapital: 5 },
+      effects: { careerCapital: 6, jobSecurity: 3 },
       notes: ["Course mill or layoff mid-course; cash not refunded"],
     },
     affectedStats: ["careerCapital", "jobSecurity", "monthlyIncome", "stress"],
@@ -402,11 +402,11 @@ export const LIFE_PROJECTS: OperationDefinition[] = [
     upkeep: [{ intervalDays: 3, effects: { legalRisk: 1 }, note: "Document grey zones" }],
     risk: "medium",
     success: {
-      effects: { migrationReadiness: 22, stress: -5 },
+      effects: { migrationReadiness: 30, legalRisk: -8, stress: -8 },
       flags: ["pj_exit_ready"],
     },
     failure: {
-      effects: { migrationReadiness: 8, cash: -4 },
+      effects: { migrationReadiness: 12, legalRisk: -2, cash: -4 },
       notes: ["Visa rules change mid-process"],
     },
     affectedStats: ["migrationReadiness", "legalRisk", "stress", "cash"],
@@ -497,10 +497,10 @@ export const LIFE_PROJECTS: OperationDefinition[] = [
     upkeep: [{ intervalDays: 2, effects: { cash: -2 } }],
     risk: "low",
     success: {
-      effects: { health: 12, stress: -10, morale: 6 },
+      effects: { health: 16, stress: -16, morale: 10 },
     },
     failure: {
-      effects: { health: 4 },
+      effects: { health: 6, stress: -3 },
       notes: ["Burnout relapse"],
     },
     affectedStats: ["health", "stress", "morale"],
@@ -523,8 +523,8 @@ export const LIFE_PROJECTS: OperationDefinition[] = [
     ],
     risk: "low",
     success: {
-      effects: { reputation: 14, foodSupply: 5, medicineAccess: 5, morale: 6 },
-      notes: ["Community absorbs one future bad event by negating one failure roll once"],
+      effects: { reputation: 16, foodSupply: 8, medicineAccess: 8, morale: 10, stress: -4 },
+      notes: ["Community absorbs one future bad event by negating one failure roll once", "Completed network softens later food and medicine shortage damage"],
     },
     failure: {
       effects: { reputation: 5, stress: 4 },
@@ -548,11 +548,11 @@ export const LIFE_PROJECTS: OperationDefinition[] = [
     risk: "low-medium",
     riskNotes: ["Supply scams", "Hardware cost scales with market.fuel"],
     success: {
-      effects: { internetAccess: 15, emergencyPreparedness: 10, jobSecurity: 4 },
+      effects: { internetAccess: 25, emergencyPreparedness: 14, jobSecurity: 8, stress: -3 },
       notes: ["Remote work survives outages", "Blackout events lose stat penalties for rest of run"],
     },
     failure: {
-      effects: { internetAccess: 5 },
+      effects: { internetAccess: 8, emergencyPreparedness: 3 },
       notes: ["Counterfeit gear; cash gone"],
     },
     affectedStats: ["internetAccess", "emergencyPreparedness", "jobSecurity", "cash"],
